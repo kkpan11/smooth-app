@@ -8,12 +8,11 @@ import 'package:openfoodfacts/openfoodfacts.dart';
 import 'package:smooth_app/database/abstract_sql_dao.dart';
 import 'package:smooth_app/database/bulk_deletable.dart';
 import 'package:smooth_app/database/bulk_manager.dart';
-import 'package:smooth_app/database/dao_product_migration.dart';
+import 'package:smooth_app/database/dao_product_last_access.dart';
 import 'package:smooth_app/database/local_database.dart';
 import 'package:sqflite/sqflite.dart';
 
-class DaoProduct extends AbstractSqlDao
-    implements BulkDeletable, DaoProductMigrationDestination {
+class DaoProduct extends AbstractSqlDao implements BulkDeletable {
   DaoProduct(super.localDatabase);
 
   static const String _TABLE_PRODUCT = 'gzipped_product';
@@ -21,11 +20,13 @@ class DaoProduct extends AbstractSqlDao
   static const String _TABLE_PRODUCT_COLUMN_GZIPPED_JSON =
       'encoded_gzipped_json';
   static const String _TABLE_PRODUCT_COLUMN_LAST_UPDATE = 'last_update';
+  static const String _TABLE_PRODUCT_COLUMN_LANGUAGE = 'lc';
 
   static const List<String> _columns = <String>[
     _TABLE_PRODUCT_COLUMN_BARCODE,
     _TABLE_PRODUCT_COLUMN_GZIPPED_JSON,
     _TABLE_PRODUCT_COLUMN_LAST_UPDATE,
+    _TABLE_PRODUCT_COLUMN_LANGUAGE,
   ];
 
   static FutureOr<void> onUpgrade(
@@ -40,6 +41,10 @@ class DaoProduct extends AbstractSqlDao
           ',$_TABLE_PRODUCT_COLUMN_GZIPPED_JSON BLOB NOT NULL'
           ',$_TABLE_PRODUCT_COLUMN_LAST_UPDATE INT NOT NULL'
           ')');
+    }
+    if (oldVersion < 4) {
+      await db.execute('alter table $_TABLE_PRODUCT add column '
+          '$_TABLE_PRODUCT_COLUMN_LANGUAGE TEXT');
     }
   }
 
@@ -87,17 +92,96 @@ class DaoProduct extends AbstractSqlDao
     return result;
   }
 
-  Future<void> put(final Product product) async => putAll(<Product>[product]);
+  /// Returns the local products split by product type.
+  Future<Map<ProductType, List<String>>> getProductTypes(
+    final List<String> barcodes,
+  ) async {
+    final Map<ProductType, List<String>> result = <ProductType, List<String>>{};
+    if (barcodes.isEmpty) {
+      return result;
+    }
+    for (int start = 0;
+        start < barcodes.length;
+        start += BulkManager.SQLITE_MAX_VARIABLE_NUMBER) {
+      final int size = min(
+        barcodes.length - start,
+        BulkManager.SQLITE_MAX_VARIABLE_NUMBER,
+      );
+      final List<Map<String, dynamic>> queryResults =
+          await localDatabase.database.query(
+        _TABLE_PRODUCT,
+        columns: _columns,
+        where: '$_TABLE_PRODUCT_COLUMN_BARCODE in(? ${',?' * (size - 1)})',
+        whereArgs: barcodes.sublist(start, start + size),
+      );
+      for (final Map<String, dynamic> row in queryResults) {
+        final Product product = _getProductFromQueryResult(row);
+        final ProductType productType = product.productType ?? ProductType.food;
+        List<String>? barcodes = result[productType];
+        if (barcodes == null) {
+          barcodes = <String>[];
+          result[productType] = barcodes;
+        }
+        barcodes.add(product.barcode!);
+      }
+    }
+    return result;
+  }
 
-  /// Replaces products in database
-  @override
-  Future<void> putAll(final Iterable<Product> products) async =>
-      localDatabase.database.transaction(
-        (final Transaction transaction) async =>
-            _bulkReplaceLoop(transaction, products),
+  /// Returns all the local products split by a function.
+  Future<Map<String, List<String>>> splitAllProducts(
+    final String Function(Product) splitFunction,
+  ) async {
+    final Map<String, List<String>> result = <String, List<String>>{};
+    final List<Map<String, dynamic>> queryResults =
+        await localDatabase.database.query(
+      _TABLE_PRODUCT,
+      columns: _columns,
+    );
+    for (final Map<String, dynamic> row in queryResults) {
+      final Product product = _getProductFromQueryResult(row);
+      final String splitValue = splitFunction(product);
+      List<String>? barcodes = result[splitValue];
+      if (barcodes == null) {
+        barcodes = <String>[];
+        result[splitValue] = barcodes;
+      }
+      barcodes.add(product.barcode!);
+    }
+    return result;
+  }
+
+  Future<void> put(
+    final Product product,
+    final OpenFoodFactsLanguage language, {
+    required final ProductType productType,
+  }) async =>
+      putAll(
+        <Product>[product],
+        language,
+        productType: productType,
       );
 
-  @override
+  /// Replaces products in database
+  Future<void> putAll(
+    final Iterable<Product> products,
+    final OpenFoodFactsLanguage language, {
+    required final ProductType productType,
+  }) async {
+    for (final Product product in products) {
+      // in case the server product has no product type, which shouldn't happen
+      // in the future
+      product.productType ??= productType;
+    }
+    await localDatabase.database.transaction(
+      (final Transaction transaction) async => _bulkReplaceLoop(
+        transaction,
+        products,
+        language,
+      ),
+    );
+  }
+
   Future<List<String>> getAllKeys() async {
     final List<String> result = <String>[];
     final List<Map<String, dynamic>> queryResults =
@@ -126,6 +210,7 @@ class DaoProduct extends AbstractSqlDao
   Future<void> _bulkReplaceLoop(
     final DatabaseExecutor databaseExecutor,
     final Iterable<Product> products,
+    final OpenFoodFactsLanguage language,
   ) async {
     final int lastUpdate = LocalDatabase.nowInMillis();
     final BulkManager bulkManager = BulkManager();
@@ -138,6 +223,7 @@ class DaoProduct extends AbstractSqlDao
         ),
       );
       insertParameters.add(lastUpdate);
+      insertParameters.add(language.offTag);
     }
     await bulkManager.insert(
       bulkInsertable: this,
@@ -205,13 +291,20 @@ class DaoProduct extends AbstractSqlDao
   }
 
   /// Get the total number of products in the database
-  Future<int> getTotalNoOfProducts() async {
-    return Sqflite.firstIntValue(
-          await localDatabase.database.rawQuery(
-            'select count(*) from $_TABLE_PRODUCT',
-          ),
-        ) ??
-        0;
+  Future<Map<ProductType, int>> getTotalNoOfProducts() async {
+    final Map<ProductType, int> result = <ProductType, int>{};
+    final List<Map<String, dynamic>> queryResults =
+        await localDatabase.database.query(
+      _TABLE_PRODUCT,
+      columns: _columns,
+    );
+    for (final Map<String, dynamic> row in queryResults) {
+      final Product product = _getProductFromQueryResult(row);
+      final ProductType productType = product.productType ?? ProductType.food;
+      final int? count = result[productType];
+      result[productType] = 1 + (count ?? 0);
+    }
+    return result;
   }
 
   /// Get the estimated total size of the database in MegaBytes
@@ -223,6 +316,7 @@ class DaoProduct extends AbstractSqlDao
       await localDatabase.database.rawQuery('''
         select sum(length($_TABLE_PRODUCT_COLUMN_BARCODE)) +
         sum(length($_TABLE_PRODUCT_COLUMN_LAST_UPDATE)) + 
+        sum(length($_TABLE_PRODUCT_COLUMN_LANGUAGE)) + 
         sum(length($_TABLE_PRODUCT_COLUMN_GZIPPED_JSON))
         from $_TABLE_PRODUCT
         '''),
@@ -237,4 +331,92 @@ class DaoProduct extends AbstractSqlDao
     // We return the number of rows deleted ie the number of products deleted
     return localDatabase.database.delete(_TABLE_PRODUCT);
   }
+
+  /// Returns the most recently locally accessed products with wrong language.
+  ///
+  /// Typical use-case: when the user changes the app language, downloading
+  /// incrementally all products with a different (or null) download language.
+  /// We need [excludeBarcodes] because in some rare cases products may not be
+  /// found anymore on the server - it happened to me with obviously fake test
+  /// products being probably wiped out.
+  Future<List<String>> getTopProductsToTranslate(
+    final OpenFoodFactsLanguage language, {
+    required final int limit,
+    required final List<String> excludeBarcodes,
+    required final ProductType productType,
+  }) async {
+    final List<String> result = <String>[];
+
+    const String tableJoin =
+        'p.$_TABLE_PRODUCT_COLUMN_BARCODE = a.${DaoProductLastAccess.COLUMN_BARCODE}';
+    final String languageCondition = ' ('
+        'p.$_TABLE_PRODUCT_COLUMN_LANGUAGE is null '
+        "or p.$_TABLE_PRODUCT_COLUMN_LANGUAGE != '${language.offTag}'"
+        ') ';
+
+    final String queryWithLastAccess =
+        'select p.$_TABLE_PRODUCT_COLUMN_GZIPPED_JSON '
+        'from'
+        ' $_TABLE_PRODUCT p '
+        ' inner join ${DaoProductLastAccess.TABLE} a'
+        '  on $tableJoin '
+        'where'
+        ' $languageCondition '
+        'order by a.${DaoProductLastAccess.COLUMN_LAST_ACCESS} desc';
+
+    final String queryWithoutLastAccess =
+        'select p.$_TABLE_PRODUCT_COLUMN_GZIPPED_JSON '
+        'from'
+        ' $_TABLE_PRODUCT p '
+        'where'
+        ' not exists('
+        '  select null'
+        '  from ${DaoProductLastAccess.TABLE} a '
+        '  where $tableJoin '
+        ' ) '
+        ' and $languageCondition';
+
+    // optimization: using 2 more simple queries than a "left join" that proved
+    // more expensive (less than .1s for each simple query, .5s for "left join")
+    final List<String> queries = <String>[
+      queryWithLastAccess,
+      queryWithoutLastAccess,
+    ];
+    for (final String query in queries) {
+      // optimization: using a cursor, as we don't want all the rows,
+      // and we don't know how many rows we'll need.
+      final QueryCursor queryCursor =
+          await localDatabase.database.rawQueryCursor(
+        query,
+        null,
+      );
+      while (await queryCursor.moveNext()) {
+        final Product product = _getProductFromQueryResult(queryCursor.current);
+        final String barcode = product.barcode!;
+        if (excludeBarcodes.contains(barcode)) {
+          continue;
+        }
+        if ((product.productType ?? ProductType.food) != productType) {
+          continue;
+        }
+        result.add(barcode);
+        if (result.length == limit) {
+          return result;
+        }
+      }
+    }
+
+    return result;
+  }
+
+  /// Sets the language of all products to null.
+  ///
+  /// This is useful to refresh the whole database, as products without language
+  /// are easy to detect. And therefore we can say "refresh all the products
+  /// with a language null or different from the current app language", and use
+  /// the same mechanism as "switch language and refresh products accordingly".
+  Future<int> clearAllLanguages() async => localDatabase.database.update(
+        _TABLE_PRODUCT,
+        <String, Object?>{_TABLE_PRODUCT_COLUMN_LANGUAGE: null},
+      );
 }

@@ -4,6 +4,7 @@ import 'package:smooth_app/generic_lib/design_constants.dart';
 import 'package:smooth_app/themes/color_provider.dart';
 import 'package:smooth_app/themes/color_schemes.dart';
 import 'package:smooth_app/themes/contrast_provider.dart';
+import 'package:smooth_app/themes/smooth_theme_colors.dart';
 import 'package:smooth_app/themes/theme_provider.dart';
 
 class SmoothTheme {
@@ -15,8 +16,8 @@ class SmoothTheme {
   static ThemeData getThemeData(
     final Brightness brightness,
     final ThemeProvider themeProvider,
-    final ColorProvider colorProvider,
-    final TextContrastProvider textContrastProvider,
+    final ColorProvider Function() colorProvider,
+    final TextContrastProvider Function() textContrastProvider,
   ) {
     ColorScheme myColorScheme;
 
@@ -24,10 +25,12 @@ class SmoothTheme {
       myColorScheme = lightColorScheme;
     } else {
       if (themeProvider.currentTheme == THEME_AMOLED) {
+        final ColorProvider colorNotifier = colorProvider();
+
         myColorScheme = trueDarkColorScheme.copyWith(
-          primary: getColorValue(colorProvider.currentColor),
+          primary: getColorValue(colorNotifier.currentColor),
           secondary: getShade(
-            getColorValue(colorProvider.currentColor),
+            getColorValue(colorNotifier.currentColor),
             darker: true,
             value: SECONDARY_COLOR_SHADE_VALUE,
           ),
@@ -37,113 +40,145 @@ class SmoothTheme {
       }
     }
 
+    final SmoothColorsThemeExtension smoothExtension =
+        SmoothColorsThemeExtension.defaultValues();
+
+    final TextTheme textTheme = brightness == Brightness.dark
+        ? getTextTheme(themeProvider, textContrastProvider)
+        : _TEXT_THEME;
+
     return ThemeData(
-      primaryColor: const Color(0xFF341100),
+      fontFamily: 'OpenSans',
+      primaryColor: DARK_BROWN_COLOR,
+      extensions: <ThemeExtension<dynamic>>[smoothExtension],
       colorScheme: myColorScheme,
       canvasColor: themeProvider.currentTheme == THEME_AMOLED
-          ? myColorScheme.background
+          ? myColorScheme.surface
           : null,
-      bottomNavigationBarTheme: BottomNavigationBarThemeData(
-        selectedIconTheme: const IconThemeData(size: 24.0),
-        showSelectedLabels: true,
-        selectedItemColor: brightness == Brightness.dark
-            ? myColorScheme.primary
-            : const Color(0xFF341100),
-        selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold),
-        showUnselectedLabels: true,
-        unselectedIconTheme: const IconThemeData(size: 20.0),
-      ),
+      scaffoldBackgroundColor:
+          brightness == Brightness.light ? null : const Color(0xFF303030),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ButtonStyle(
-          backgroundColor: MaterialStateProperty.resolveWith<Color?>(
-            (Set<MaterialState> states) =>
-                states.contains(MaterialState.disabled)
-                    ? Colors.grey
-                    : myColorScheme.primary,
+          backgroundColor: WidgetStateProperty.resolveWith<Color?>(
+            (Set<WidgetState> states) => states.contains(WidgetState.disabled)
+                ? Colors.grey
+                : myColorScheme.primary,
           ),
+          foregroundColor: WidgetStateProperty.resolveWith<Color?>(
+            (Set<WidgetState> states) => states.contains(WidgetState.disabled)
+                ? Colors.white
+                : myColorScheme.onPrimary,
+          ),
+          iconColor: WidgetStateProperty.all<Color>(myColorScheme.onPrimary),
         ),
       ),
       floatingActionButtonTheme: FloatingActionButtonThemeData(
           backgroundColor: myColorScheme.primary,
           foregroundColor: myColorScheme.onPrimary),
-      textTheme: brightness == Brightness.dark
-          ? getTextTheme(themeProvider, textContrastProvider)
-          : _TEXT_THEME,
+      textTheme: textTheme,
       appBarTheme: AppBarTheme(
-        color: myColorScheme.background,
-        foregroundColor: myColorScheme.onBackground,
+        centerTitle: false,
+        color: myColorScheme.surface,
+        foregroundColor: myColorScheme.onSurface,
         systemOverlayStyle: SystemUiOverlayStyle.light,
+        titleTextStyle: textTheme.titleLarge,
       ),
-      dividerColor: const Color(0xFFdfdfdf),
+      dividerTheme: const DividerThemeData(
+        color: Color(0xFFECECEC),
+        space: 1.0,
+      ),
+      dividerColor: const Color(0xFFDFDFDF),
       inputDecorationTheme: InputDecorationTheme(
         fillColor: myColorScheme.secondary,
       ),
       iconTheme: IconThemeData(
-        color: myColorScheme.onBackground,
+        color: myColorScheme.onSurface,
       ),
       snackBarTheme: SnackBarThemeData(
-        contentTextStyle:
-            _TEXT_THEME.bodyMedium?.copyWith(color: myColorScheme.onPrimary),
-        actionTextColor: myColorScheme.onPrimary,
-        backgroundColor: myColorScheme.onBackground,
+        contentTextStyle: _TEXT_THEME.bodyMedium?.copyWith(
+          color: Colors.white,
+          fontWeight: FontWeight.w500,
+        ),
+        actionTextColor: Colors.white,
+        backgroundColor: smoothExtension.primaryBlack,
       ),
       bannerTheme: MaterialBannerThemeData(
         contentTextStyle: TextStyle(color: myColorScheme.onSecondary),
         backgroundColor: myColorScheme.secondary,
       ),
       checkboxTheme: CheckboxThemeData(
-        fillColor: MaterialStateProperty.resolveWith<Color?>(
-            (Set<MaterialState> states) {
-          if (states.contains(MaterialState.disabled)) {
+        fillColor:
+            WidgetStateProperty.resolveWith<Color?>((Set<WidgetState> states) {
+          if (states.contains(WidgetState.disabled)) {
             return null;
           }
-          if (states.contains(MaterialState.selected)) {
-            return myColorScheme.primary;
+          if (states.contains(WidgetState.selected)) {
+            return brightness == Brightness.light
+                ? smoothExtension.primarySemiDark
+                : smoothExtension.primaryNormal;
           }
           return null;
         }),
+        side: BorderSide(
+          color: brightness == Brightness.light
+              ? smoothExtension.primaryBlack
+              : smoothExtension.primarySemiDark,
+          width: 2.0,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(3.0),
+        ),
+        checkColor: const WidgetStatePropertyAll<Color>(Colors.white),
       ),
       radioTheme: RadioThemeData(
-        fillColor: MaterialStateProperty.resolveWith<Color?>(
-            (Set<MaterialState> states) {
-          if (states.contains(MaterialState.disabled)) {
+        fillColor:
+            WidgetStateProperty.resolveWith<Color?>((Set<WidgetState> states) {
+          if (states.contains(WidgetState.disabled)) {
             return null;
           }
-          if (states.contains(MaterialState.selected)) {
+          if (states.contains(WidgetState.selected)) {
             return myColorScheme.primary;
           }
           return null;
         }),
       ),
       switchTheme: SwitchThemeData(
-        thumbColor: MaterialStateProperty.resolveWith<Color?>(
-            (Set<MaterialState> states) {
-          if (states.contains(MaterialState.disabled)) {
+        thumbColor:
+            WidgetStateProperty.resolveWith<Color?>((Set<WidgetState> states) {
+          if (states.contains(WidgetState.selected)) {
+            if (brightness == Brightness.light) {
+              return smoothExtension.primaryDark;
+            } else {
+              return smoothExtension.primarySemiDark;
+            }
+          } else if (states.contains(WidgetState.disabled)) {
+            if (brightness == Brightness.light) {
+              return const Color(0xFFC2B5B0);
+            } else {
+              return smoothExtension.primaryNormal;
+            }
+          } else {
             return null;
           }
-          if (states.contains(MaterialState.selected)) {
-            return myColorScheme.primary;
-          }
-          return null;
         }),
-        trackColor: MaterialStateProperty.resolveWith<Color?>(
-            (Set<MaterialState> states) {
-          if (states.contains(MaterialState.disabled)) {
-            return null;
+        trackColor:
+            WidgetStateProperty.resolveWith<Color?>((Set<WidgetState> states) {
+          if (brightness == Brightness.light) {
+            return smoothExtension.primaryMedium;
+          } else {
+            return const Color(0xFFEDE0DB);
           }
-          if (states.contains(MaterialState.selected)) {
-            return myColorScheme.primary;
-          }
-          return null;
         }),
       ),
     );
   }
 
   static TextTheme getTextTheme(
-      ThemeProvider themeProvider, TextContrastProvider textContrastProvider) {
+    ThemeProvider themeProvider,
+    TextContrastProvider Function() textContrastProvider,
+  ) {
     final Color contrastLevel = themeProvider.currentTheme == THEME_AMOLED
-        ? getTextContrastLevel(textContrastProvider.currentContrastLevel)
+        ? getTextContrastLevel(textContrastProvider().currentContrastLevel)
         : Colors.white;
 
     return _TEXT_THEME.copyWith(
@@ -202,7 +237,7 @@ class SmoothTheme {
       800: getShade(color, value: 0.2, darker: true),
       900: getShade(color, value: 0.25, darker: true),
     };
-    return MaterialColor(color.value, colorShades);
+    return MaterialColor(color.intValue, colorShades);
   }
 
   //From: https://stackoverflow.com/a/58604669/13313941
@@ -215,5 +250,25 @@ class SmoothTheme {
             .clamp(0.0, 1.0));
 
     return hslDark.toColor();
+  }
+}
+
+extension SmoothThemeExtension on BuildContext {
+  T extension<T>() {
+    return Theme.of(this).extension<T>()!;
+  }
+}
+
+extension SmoothColorExtension on Color {
+  /// ignore: deprecated_member_use
+  /// [Color.value] is deprecated, use [Color.intValue] instead
+  int get intValue {
+    final int a = (this.a * 255).round();
+    final int r = (this.r * 255).round();
+    final int g = (this.g * 255).round();
+    final int b = (this.b * 255).round();
+
+    // Combine the components into a single int using bit shifting
+    return (a << 24) | (r << 16) | (g << 8) | b;
   }
 }

@@ -14,12 +14,14 @@ class _ImageComputeContainer {
     required this.rawData,
     required this.width,
     required this.height,
+    required this.quality,
   }) : rootIsolateToken = ui.RootIsolateToken.instance;
 
   final File file;
   final ByteData rawData;
   final int width;
   final int height;
+  final int quality;
   final ui.RootIsolateToken? rootIsolateToken;
 
   bool get isIsolatePossible => rootIsolateToken != null;
@@ -47,12 +49,20 @@ Future<void> saveBmp({
     rawData: rawData,
     width: source.width,
     height: source.height,
+    // whatever, we don't use it for bmp
+    quality: 100,
   );
   if (container.isIsolatePossible) {
-    await compute(_saveBmp, container);
-  } else {
-    await _saveBmp(container);
+    try {
+      // with an isolate if possible
+      await compute(_saveBmp, container);
+    } catch (e) {
+      // fallback version: async (cf. https://github.com/openfoodfacts/smooth-app/issues/4304)
+      await _saveBmp(container, withIsolate: false);
+    }
+    return;
   }
+  await _saveBmp(container, withIsolate: false);
 }
 
 /// Saves an image to a JPEG file.
@@ -62,6 +72,7 @@ Future<void> saveBmp({
 Future<void> saveJpeg({
   required final File file,
   required final ui.Image source,
+  required final int quality,
 }) async {
   final ByteData? rawData = await source.toByteData(
     format: ui.ImageByteFormat.rawRgba,
@@ -74,12 +85,19 @@ Future<void> saveJpeg({
     rawData: rawData,
     width: source.width,
     height: source.height,
+    quality: quality,
   );
   if (container.isIsolatePossible) {
-    await compute(_saveJpeg, container);
-  } else {
-    await _saveJpeg(container);
+    try {
+      // with an isolate if possible
+      await compute(_saveJpeg, container);
+    } catch (e) {
+      // fallback version: async (cf. https://github.com/openfoodfacts/smooth-app/issues/4304)
+      await _saveJpeg(container, withIsolate: false);
+    }
+    return;
   }
+  await _saveJpeg(container, withIsolate: false);
 }
 
 Future<image.Image> _convertImageFromUI(
@@ -96,8 +114,13 @@ Future<image.Image> _convertImageFromUI(
     );
 
 /// Saves an image to a BMP file. As BMP for better performances.
-Future<void> _saveBmp(final _ImageComputeContainer container) async {
-  container.ensureIsolate();
+Future<void> _saveBmp(
+  final _ImageComputeContainer container, {
+  final bool withIsolate = true,
+}) async {
+  if (withIsolate) {
+    container.ensureIsolate();
+  }
   final image.Image rawImage = await _convertImageFromUI(
     container.rawData,
     container.width,
@@ -113,8 +136,13 @@ Future<void> _saveBmp(final _ImageComputeContainer container) async {
 ///
 /// It's faster to encode as BMP and then compress to JPEG, instead of directly
 /// compressing the image to JPEG (standard flutter being slow).
-Future<void> _saveJpeg(final _ImageComputeContainer container) async {
-  container.ensureIsolate();
+Future<void> _saveJpeg(
+  final _ImageComputeContainer container, {
+  final bool withIsolate = true,
+}) async {
+  if (withIsolate) {
+    container.ensureIsolate();
+  }
   image.Image? rawImage = await _convertImageFromUI(
     container.rawData,
     container.width,
@@ -126,7 +154,7 @@ Future<void> _saveJpeg(final _ImageComputeContainer container) async {
   final Uint8List jpegData = await FlutterImageCompress.compressWithList(
     bmpData,
     autoCorrectionAngle: false,
-    quality: 100,
+    quality: container.quality,
     format: CompressFormat.jpeg,
     minWidth: container.width,
     minHeight: container.height,

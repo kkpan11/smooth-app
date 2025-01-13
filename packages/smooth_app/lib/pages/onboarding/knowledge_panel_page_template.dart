@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
@@ -25,6 +23,7 @@ class KnowledgePanelPageTemplate extends StatefulWidget {
     required this.backgroundColor,
     required this.svgAsset,
     required this.nextKey,
+    this.selectableText = false,
   });
 
   final String headerTitle;
@@ -37,6 +36,8 @@ class KnowledgePanelPageTemplate extends StatefulWidget {
   final Color backgroundColor;
   final String svgAsset;
   final Key nextKey;
+
+  final bool selectableText;
 
   @override
   State<KnowledgePanelPageTemplate> createState() =>
@@ -76,19 +77,19 @@ class _KnowledgePanelPageTemplateState
           if (snapshot.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator.adaptive());
           }
-          final List<Widget> children = KnowledgePanelWidget.getChildren(
+          final List<Widget> children = KnowledgePanelsBuilder.getChildren(
             context,
-            panelElement: KnowledgePanelWidget.getPanelElement(
+            panelElement: KnowledgePanelsBuilder.getRootPanelElement(
               _product,
               widget.panelId,
             )!,
             product: _product,
             onboardingMode: true,
           );
-          return Container(
+          return ColoredBox(
             color: widget.backgroundColor,
             child: SafeArea(
-              bottom: Platform.isAndroid,
+              bottom: false,
               child: Stack(
                 fit: StackFit.expand,
                 children: <Widget>[
@@ -98,36 +99,38 @@ class _KnowledgePanelPageTemplateState
                     children: <Widget>[
                       Flexible(
                         flex: 1,
-                        child: ListView(
-                          children: <Widget>[
-                            SvgPicture.asset(
-                              widget.svgAsset,
-                              height: MediaQuery.of(context).size.height * .25,
-                              package: AppHelper.APP_PACKAGE,
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: LARGE_SPACE,
+                        child: Scrollbar(
+                          child: ListView(
+                            children: <Widget>[
+                              SvgPicture.asset(
+                                widget.svgAsset,
+                                height: MediaQuery.sizeOf(context).height * .25,
+                                package: AppHelper.APP_PACKAGE,
                               ),
-                              child: Text(
-                                widget.headerTitle,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .displayMedium
-                                    ?.wellSpaced,
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: LARGE_SPACE,
+                                ),
+                                child: Text(
+                                  widget.headerTitle,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .displayMedium
+                                      ?.wellSpaced,
+                                ),
                               ),
-                            ),
-                            if (children.isNotEmpty)
-                              KnowledgePanelProductCards(
-                                <Widget>[
-                                  Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: children,
-                                  ),
-                                ],
-                              ),
-                          ],
+                              if (children.isNotEmpty)
+                                KnowledgePanelProductCards(
+                                  <Widget>[
+                                    Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: children,
+                                    ),
+                                  ],
+                                ),
+                            ],
+                          ),
                         ),
                       ),
                       NextButton(
@@ -150,18 +153,30 @@ class _KnowledgePanelPageTemplateState
       key: const Key('toolTipPopUp'),
       child: Card(
         margin: const EdgeInsets.symmetric(horizontal: 30),
-        color: Theme.of(context).hintColor.withOpacity(0.9),
+        color: Theme.of(context).hintColor.withValues(alpha: 0.9),
         shape: const TooltipShapeBorder(arrowArc: 0.5),
         child: Container(
           margin: const EdgeInsetsDirectional.only(
             start: VERY_LARGE_SPACE,
             top: 10,
-            end: VERY_LARGE_SPACE,
+            end: 10,
             bottom: 10,
           ),
-          child: Text(
-            appLocalizations.hint_knowledge_panel_message,
-            style: TextStyle(color: Theme.of(context).cardColor),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  appLocalizations.hint_knowledge_panel_message,
+                  style: TextStyle(color: Theme.of(context).cardColor),
+                ),
+              ),
+              const SizedBox(width: VERY_LARGE_SPACE),
+              Icon(
+                Icons.close,
+                color: Theme.of(context).cardColor,
+              ),
+            ],
           ),
         ),
       ),

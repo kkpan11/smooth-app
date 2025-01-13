@@ -1,37 +1,66 @@
 import 'package:flutter/material.dart';
-import 'package:smooth_app/generic_lib/design_constants.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
+import 'package:rive/rive.dart';
+import 'package:smooth_app/cards/product_cards/smooth_product_base_card.dart';
+import 'package:smooth_app/themes/smooth_theme.dart';
+import 'package:smooth_app/themes/smooth_theme_colors.dart';
+import 'package:smooth_app/widgets/smooth_text.dart';
 
-class SmoothProductCardLoading extends StatelessWidget {
-  const SmoothProductCardLoading({required this.barcode});
+class ScanProductCardLoading extends StatelessWidget {
+  ScanProductCardLoading({
+    required this.barcode,
+    this.onRemoveProduct,
+  }) : assert(barcode.isNotEmpty);
 
   final String barcode;
+  final OnRemoveCallback? onRemoveProduct;
 
   @override
   Widget build(BuildContext context) {
-    final ThemeData themeData = Theme.of(context);
+    final AppLocalizations appLocalizations = AppLocalizations.of(context);
+    final SmoothColorsThemeExtension theme =
+        context.extension<SmoothColorsThemeExtension>();
 
-    return Container(
-      decoration: BoxDecoration(
-        color: themeData.brightness == Brightness.light
-            ? Colors.white
-            : Colors.black,
-        borderRadius: ROUNDED_BORDER_RADIUS,
-      ),
+    return ScanProductBaseCard(
+      headerLabel: appLocalizations.carousel_loading_header,
+      headerIndicatorColor: theme.error,
+      onRemove: onRemoveProduct,
       child: Column(
-        mainAxisSize: MainAxisSize.max,
-        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisAlignment: MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Row(
-            mainAxisSize: MainAxisSize.max,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              Text(barcode, style: Theme.of(context).textTheme.titleMedium),
-            ],
+          ScanProductBaseCardTitle(
+            title: appLocalizations.carousel_loading_title,
           ),
-          const SizedBox(
-            height: 12.0,
+          ScanProductBaseCardBarcode(
+            barcode: barcode,
+            height: 75.0,
           ),
-          const CircularProgressIndicator.adaptive()
+          ScanProductBaseCardText(
+            text: TextWithBoldParts(
+              text: appLocalizations.carousel_loading_text,
+              textStyle: const TextStyle(
+                fontSize: 14.5,
+              ),
+            ),
+          ),
+          const Spacer(flex: 10),
+          const Expanded(
+            flex: 80,
+            child: ExcludeSemantics(
+              child: SizedBox(
+                width: double.infinity,
+                height: double.infinity,
+                child: RiveAnimation.asset(
+                  'assets/animations/off.riv',
+                  artboard: 'Loading',
+                  alignment: Alignment.topCenter,
+                  fit: BoxFit.fitHeight,
+                ),
+              ),
+            ),
+          ),
+          const Spacer(flex: 10),
         ],
       ),
     );

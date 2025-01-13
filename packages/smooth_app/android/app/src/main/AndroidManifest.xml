@@ -1,6 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
           xmlns:tools="http://schemas.android.com/tools"
-          package="org.openfoodfacts.app"
           android:installLocation="auto">
 
     <uses-permission android:name="android.permission.INTERNET"/>
@@ -20,7 +19,10 @@
             android:label="OpenFoodFacts"
             android:name="${applicationName}"
             android:icon="@mipmap/ic_launcher"
-            android:hasFragileUserData="true" tools:targetApi="q">
+            android:hasFragileUserData="true"
+            android:allowBackup="true"
+            android:fullBackupContent="@xml/backup_scheme"
+            tools:targetApi="q">
         <activity
                 android:name=".MainActivity"
                 android:exported="true"
@@ -49,7 +51,11 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                
+
+                <!-- Prices -->
+                <data android:scheme="http" android:host="prices.openfoodfacts.org" />
+                <data android:scheme="http" android:host="prices.openfoodfacts.net" />
+
                 <!-- OpenFoodFacts.org -->
                 <data android:scheme="http" android:host="ae.openfoodfacts.org" />
                 <data android:scheme="http" android:host="ar.openfoodfacts.org" />
@@ -562,7 +568,7 @@
                 android:value="2"/>
 
         <!-- Quick tile / setting (only available on Android 24+ / Nougat) -->
-        <service android:name="org.openfoodfacts.app.AppMainTile"
+        <service android:name=".AppMainTile"
                  android:exported="true"
                  android:icon="@drawable/ic_launcher_foreground"
                  android:label="@string/app_name"

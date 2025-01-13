@@ -3,6 +3,7 @@ import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:flutter_svg/svg.dart';
 import 'package:openfoodfacts/openfoodfacts.dart';
 import 'package:provider/provider.dart';
+import 'package:smooth_app/data_models/fetched_product.dart';
 import 'package:smooth_app/database/local_database.dart';
 import 'package:smooth_app/generic_lib/buttons/smooth_large_button_with_icon.dart';
 import 'package:smooth_app/generic_lib/design_constants.dart';
@@ -14,11 +15,12 @@ import 'package:smooth_app/pages/product/common/product_refresher.dart';
 class ProductLoaderPage extends StatefulWidget {
   const ProductLoaderPage({
     required this.barcode,
-    Key? key,
-  })  : assert(barcode != ''),
-        super(key: key);
+    required this.mode,
+    super.key,
+  }) : assert(barcode != '');
 
   final String barcode;
+  final ProductLoaderMode mode;
 
   @override
   State<ProductLoaderPage> createState() => _ProductLoaderPageState();
@@ -42,28 +44,40 @@ class _ProductLoaderPageState extends State<ProductLoaderPage> {
       _state = _ProductLoaderState.loading;
     });
 
-    try {
-      final Product? product =
-          await ProductRefresher().silentFetchAndRefreshWithException(
-        barcode: widget.barcode,
-        localDatabase: context.read<LocalDatabase>(),
-      );
+    final FetchedProduct fetchedProduct =
+        await ProductRefresher().silentFetchAndRefresh(
+      barcode: widget.barcode,
+      localDatabase: context.read<LocalDatabase>(),
+    );
 
-      if (product != null && mounted) {
-        navigator.pushReplacement(
-          AppRoutes.PRODUCT(
-            widget.barcode,
-            heroTag: 'product_${widget.barcode}',
-          ),
-          extra: product,
-        );
-      } else {
+    if (mounted) {
+      if (fetchedProduct.product != null) {
+        if (widget.mode == ProductLoaderMode.viewProduct) {
+          navigator.pushReplacement(
+            AppRoutes.PRODUCT(
+              widget.barcode,
+              heroTag: 'product_${widget.barcode}',
+            ),
+            extra: fetchedProduct.product,
+          );
+        } else if (widget.mode == ProductLoaderMode.editProduct) {
+          navigator.pushReplacement(
+            AppRoutes.PRODUCT_EDITOR(
+              widget.barcode,
+            ),
+            extra: fetchedProduct.product,
+          );
+        }
+        return;
+      }
+      if (fetchedProduct.status == FetchedProductStatus.internetNotFound) {
         setState(() {
           _state = _ProductLoaderState.productNotFound;
         });
+        return;
       }
-    } catch (err) {
       setState(() {
+        // TODO(monsieurtanuki): put more details from FetchedProduct?
         _state = _ProductLoaderState.serverError;
       });
     }
@@ -96,7 +110,7 @@ class _ProductLoaderPageState extends State<ProductLoaderPage> {
 }
 
 class _ProductLoaderLoadingState extends StatelessWidget {
-  const _ProductLoaderLoadingState({Key? key}) : super(key: key);
+  const _ProductLoaderLoadingState();
 
   @override
   Widget build(BuildContext context) {
@@ -107,8 +121,7 @@ class _ProductLoaderLoadingState extends StatelessWidget {
 class _ProductLoaderNotFoundState extends StatelessWidget {
   const _ProductLoaderNotFoundState({
     required this.barcode,
-    Key? key,
-  }) : super(key: key);
+  });
 
   final String barcode;
 
@@ -136,7 +149,7 @@ class _ProductLoaderNotFoundState extends StatelessWidget {
           const SizedBox(height: VERY_LARGE_SPACE * 2),
           SmoothLargeButtonWithIcon(
             text: localizations.add_product_information_button_label,
-            icon: Icons.add,
+            leadingIcon: const Icon(Icons.add),
             padding: const EdgeInsets.symmetric(vertical: LARGE_SPACE),
             onPressed: () {
               AppNavigator.of(context).pushReplacement(
@@ -153,8 +166,7 @@ class _ProductLoaderNotFoundState extends StatelessWidget {
 class _ProductLoaderNetworkErrorState extends StatelessWidget {
   const _ProductLoaderNetworkErrorState({
     required this.onRetry,
-    Key? key,
-  }) : super(key: key);
+  });
 
   final VoidCallback onRetry;
 
@@ -182,7 +194,7 @@ class _ProductLoaderNetworkErrorState extends StatelessWidget {
           const SizedBox(height: VERY_LARGE_SPACE * 2),
           SmoothLargeButtonWithIcon(
             text: localizations.retry_button_label,
-            icon: Icons.sync,
+            leadingIcon: const Icon(Icons.sync),
             padding: const EdgeInsets.symmetric(vertical: LARGE_SPACE),
             onPressed: onRetry,
           )
@@ -196,4 +208,9 @@ enum _ProductLoaderState {
   loading,
   productNotFound,
   serverError;
+}
+
+enum ProductLoaderMode {
+  viewProduct,
+  editProduct,
 }

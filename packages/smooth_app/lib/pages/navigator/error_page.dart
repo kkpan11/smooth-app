@@ -9,8 +9,8 @@ import 'package:smooth_app/pages/navigator/app_navigator.dart';
 class ErrorPage extends StatelessWidget {
   const ErrorPage({
     required this.url,
-    Key? key,
-  }) : super(key: key);
+    super.key,
+  });
 
   final String url;
 
@@ -40,7 +40,7 @@ class ErrorPage extends StatelessWidget {
               const SizedBox(height: VERY_LARGE_SPACE * 2),
               SmoothLargeButtonWithIcon(
                 text: localizations.page_not_found_button,
-                icon: Icons.home,
+                leadingIcon: const Icon(Icons.home),
                 padding: const EdgeInsets.symmetric(vertical: LARGE_SPACE),
                 onPressed: () {
                   AppNavigator.of(context).pop();

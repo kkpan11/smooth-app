@@ -1,11 +1,15 @@
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
+import 'package:openfoodfacts/openfoodfacts.dart';
 import 'package:smooth_app/background/background_task.dart';
+import 'package:smooth_app/background/background_task_add_other_price.dart';
+import 'package:smooth_app/background/background_task_add_price.dart';
 import 'package:smooth_app/background/background_task_crop.dart';
 import 'package:smooth_app/background/background_task_details.dart';
 import 'package:smooth_app/background/background_task_download_products.dart';
 import 'package:smooth_app/background/background_task_full_refresh.dart';
 import 'package:smooth_app/background/background_task_hunger_games.dart';
 import 'package:smooth_app/background/background_task_image.dart';
+import 'package:smooth_app/background/background_task_language_refresh.dart';
 import 'package:smooth_app/background/background_task_offline.dart';
 import 'package:smooth_app/background/background_task_progressing.dart';
 import 'package:smooth_app/background/background_task_refresh_later.dart';
@@ -33,6 +37,9 @@ enum OperationType {
   offlineBarcodes('B', 'OFFLINE_BARCODES'),
   offlineProducts('P', 'OFFLINE_PRODUCTS'),
   fullRefresh('F', 'FULL_REFRESH'),
+  languageRefresh('L', 'LANGUAGE_REFRESH'),
+  addPrice('A', 'ADD_PRICE'),
+  addOtherPrice('E', 'ADD_OTHER_PRICE'),
   details('D', 'PRODUCT_EDIT');
 
   const OperationType(this.header, this.processName);
@@ -52,6 +59,7 @@ enum OperationType {
     final int? totalSize,
     final int? soFarSize,
     final String? work,
+    final ProductType? productType,
   }) async {
     final int sequentialId =
         await getNextSequenceNumber(DaoInt(localDatabase), _uniqueSequenceKey);
@@ -60,61 +68,47 @@ enum OperationType {
         '$_transientHeaderSeparator$barcode'
         '$_transientHeaderSeparator${totalSize == null ? '' : totalSize.toString()}'
         '$_transientHeaderSeparator${soFarSize == null ? '' : soFarSize.toString()}'
-        '$_transientHeaderSeparator${work ?? ''}';
+        '$_transientHeaderSeparator${work ?? ''}'
+        '$_transientHeaderSeparator${productType == null ? '' : productType.offTag}';
   }
 
-  BackgroundTask fromJson(Map<String, dynamic> map) {
-    switch (this) {
-      case crop:
-        return BackgroundTaskCrop.fromJson(map);
-      case details:
-        return BackgroundTaskDetails.fromJson(map);
-      case hungerGames:
-        return BackgroundTaskHungerGames.fromJson(map);
-      case image:
-        return BackgroundTaskImage.fromJson(map);
-      case refreshLater:
-        return BackgroundTaskRefreshLater.fromJson(map);
-      case unselect:
-        return BackgroundTaskUnselect.fromJson(map);
-      case offline:
-        return BackgroundTaskOffline.fromJson(map);
-      case offlineBarcodes:
-        return BackgroundTaskTopBarcodes.fromJson(map);
-      case offlineProducts:
-        return BackgroundTaskDownloadProducts.fromJson(map);
-      case fullRefresh:
-        return BackgroundTaskFullRefresh.fromJson(map);
-    }
-  }
+  BackgroundTask fromJson(Map<String, dynamic> map) => switch (this) {
+        crop => BackgroundTaskCrop.fromJson(map),
+        addPrice => BackgroundTaskAddPrice.fromJson(map),
+        addOtherPrice => BackgroundTaskAddOtherPrice.fromJson(map),
+        details => BackgroundTaskDetails.fromJson(map),
+        hungerGames => BackgroundTaskHungerGames.fromJson(map),
+        image => BackgroundTaskImage.fromJson(map),
+        refreshLater => BackgroundTaskRefreshLater.fromJson(map),
+        unselect => BackgroundTaskUnselect.fromJson(map),
+        offline => BackgroundTaskOffline.fromJson(map),
+        offlineBarcodes => BackgroundTaskTopBarcodes.fromJson(map),
+        offlineProducts => BackgroundTaskDownloadProducts.fromJson(map),
+        fullRefresh => BackgroundTaskFullRefresh.fromJson(map),
+        languageRefresh => BackgroundTaskLanguageRefresh.fromJson(map),
+      };
 
   bool matches(final TransientOperation action) =>
       action.key.startsWith('$header$_transientHeaderSeparator');
 
-  String getLabel(final AppLocalizations appLocalizations) {
-    switch (this) {
-      case OperationType.details:
-        return appLocalizations.background_task_operation_details;
-      case OperationType.image:
-        return appLocalizations.background_task_operation_image;
-      case OperationType.unselect:
-        return 'Unselect a product image';
-      case OperationType.hungerGames:
-        return 'Answering to a Hunger Games question';
-      case OperationType.crop:
-        return 'Crop an existing image';
-      case OperationType.refreshLater:
-        return 'Waiting 10 min before refreshing product to get all automatic edits';
-      case OperationType.offline:
-        return 'Downloading top n products for offline usage';
-      case OperationType.offlineBarcodes:
-        return 'Downloading top n barcodes';
-      case OperationType.offlineProducts:
-        return 'Downloading products';
-      case OperationType.fullRefresh:
-        return 'Refreshing the full local database';
-    }
-  }
+  String getLabel(final AppLocalizations appLocalizations) => switch (this) {
+        OperationType.details =>
+          appLocalizations.background_task_operation_details,
+        OperationType.addPrice => 'Add price',
+        OperationType.addOtherPrice => 'Add price to existing proof',
+        OperationType.image => appLocalizations.background_task_operation_image,
+        OperationType.unselect => 'Unselect a product image',
+        OperationType.hungerGames => 'Answering to a Hunger Games question',
+        OperationType.crop => 'Crop an existing image',
+        OperationType.refreshLater =>
+          'Waiting 10 min before refreshing product to get all automatic edits',
+        OperationType.offline => 'Downloading top n products for offline usage',
+        OperationType.offlineBarcodes => 'Downloading top n barcodes',
+        OperationType.offlineProducts => 'Downloading products',
+        OperationType.fullRefresh => 'Refreshing the full local database',
+        OperationType.languageRefresh =>
+          'Refreshing the local database to a new language',
+      };
 
   static int getSequentialId(final TransientOperation operation) {
     final List<String> keyItems =
@@ -122,33 +116,30 @@ enum OperationType {
     return int.parse(keyItems[1]);
   }
 
-  static String getBarcode(final String key) {
-    final List<String> keyItems = key.split(_transientHeaderSeparator);
-    return keyItems[2];
-  }
+  static String getBarcode(final String key) => _getNthParameter(key, 2)!;
 
-  static int? getTotalSize(final String key) {
+  static int? getTotalSize(final String key) => _getNthIntParameter(key, 3);
+
+  static int? getSoFarSize(final String key) => _getNthIntParameter(key, 4);
+
+  static String? getWork(final String key) => _getNthParameter(key, 5);
+
+  static String? getProductType(final String key) => _getNthParameter(key, 6);
+
+  static String? _getNthParameter(final String key, final int index) {
     final List<String> keyItems = key.split(_transientHeaderSeparator);
-    if (keyItems.length <= 3) {
+    if (keyItems.length <= index) {
       return null;
     }
-    return int.tryParse(keyItems[3]);
+    return keyItems[index];
   }
 
-  static int? getSoFarSize(final String key) {
-    final List<String> keyItems = key.split(_transientHeaderSeparator);
-    if (keyItems.length <= 4) {
+  static int? _getNthIntParameter(final String key, final int index) {
+    final String? parameter = _getNthParameter(key, index);
+    if (parameter == null) {
       return null;
     }
-    return int.tryParse(keyItems[4]);
-  }
-
-  static String? getWork(final String key) {
-    final List<String> keyItems = key.split(_transientHeaderSeparator);
-    if (keyItems.length <= 5) {
-      return null;
-    }
-    return keyItems[5];
+    return int.tryParse(parameter);
   }
 
   static OperationType? getOperationType(final String key) {

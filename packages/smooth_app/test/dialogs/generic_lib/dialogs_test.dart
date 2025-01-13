@@ -1,19 +1,25 @@
+import 'package:app_store_shared/app_store_shared.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openfoodfacts/openfoodfacts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:smooth_app/data_models/preferences/user_preferences.dart';
 import 'package:smooth_app/data_models/product_preferences.dart';
 import 'package:smooth_app/data_models/user_management_provider.dart';
-import 'package:smooth_app/data_models/user_preferences.dart';
 import 'package:smooth_app/generic_lib/dialogs/smooth_alert_dialog.dart';
+import 'package:smooth_app/helpers/global_vars.dart';
 import 'package:smooth_app/pages/preferences/user_preferences_page.dart';
 import 'package:smooth_app/themes/color_provider.dart';
 import 'package:smooth_app/themes/contrast_provider.dart';
 import 'package:smooth_app/themes/theme_provider.dart';
+
 import '../../tests_utils/goldens.dart';
+import '../../tests_utils/local_database_mock.dart';
 import '../../tests_utils/mocks.dart';
 
 void main() {
+  GlobalVars.appStore = const MockedAppStore();
+
   group(
     'Dialogs on Contribute Page looks as expected',
     () {
@@ -23,7 +29,7 @@ void main() {
           'Software development',
           'Translate',
           // 'Contributors'
-          // Currently can't make real http calls from the test librbay and since this dialog depends on an api call
+          // Currently can't make real http calls from the test library and since this dialog depends on an api call
           // So omitting this one for now
         ];
         for (final String dialogType in dialogTypes) {
@@ -67,6 +73,7 @@ void main() {
                   const UserPreferencesPage(
                     type: PreferencePageType.CONTRIBUTE,
                   ),
+                  localDatabase: MockLocalDatabase(),
                 ),
               );
               await tester.pumpAndSettle();

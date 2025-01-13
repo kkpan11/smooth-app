@@ -12,24 +12,26 @@ import 'package:smooth_app/helpers/analytics_helper.dart';
 import 'package:smooth_app/helpers/image_field_extension.dart';
 import 'package:smooth_app/helpers/product_cards_helper.dart';
 import 'package:smooth_app/pages/image_crop_page.dart';
+import 'package:smooth_app/pages/input/unfocus_field_when_tap_outside.dart';
 import 'package:smooth_app/pages/product/common/product_buttons.dart';
 import 'package:smooth_app/pages/product/edit_new_packagings_component.dart';
 import 'package:smooth_app/pages/product/edit_new_packagings_helper.dart';
 import 'package:smooth_app/pages/product/may_exit_page_helper.dart';
 import 'package:smooth_app/pages/product/simple_input_number_field.dart';
-import 'package:smooth_app/pages/product/simple_input_text_field.dart';
 import 'package:smooth_app/query/product_query.dart';
 import 'package:smooth_app/themes/color_schemes.dart';
-import 'package:smooth_app/widgets/smooth_app_bar.dart';
 import 'package:smooth_app/widgets/smooth_scaffold.dart';
+import 'package:smooth_app/widgets/will_pop_scope.dart';
 
 /// Edit display of a product packagings (the new api V3 version).
 class EditNewPackagings extends StatefulWidget {
   const EditNewPackagings({
     required this.product,
+    required this.isLoggedInMandatory,
   });
 
   final Product product;
+  final bool isLoggedInMandatory;
 
   @override
   State<EditNewPackagings> createState() => _EditNewPackagingsState();
@@ -73,10 +75,10 @@ class _EditNewPackagingsState extends State<EditNewPackagings>
     _unitNumberFormat = SimpleInputNumberField.getNumberFormat(
       decimal: false,
     );
-    if (initialProduct.packagings != null) {
-      initialProduct.packagings!.forEach(_addPackagingToControllers);
+    if (upToDateProduct.packagings != null) {
+      upToDateProduct.packagings!.forEach(_addPackagingToControllers);
     }
-    _packagingsComplete = initialProduct.packagingsComplete;
+    _packagingsComplete = upToDateProduct.packagingsComplete;
   }
 
   @override
@@ -96,7 +98,11 @@ class _EditNewPackagingsState extends State<EditNewPackagings>
     children.add(
       Padding(
         padding: const EdgeInsets.all(SMALL_SPACE),
-        child: ImageField.PACKAGING.getPhotoButton(context, upToDateProduct),
+        child: ImageField.PACKAGING.getPhotoButton(
+          context,
+          upToDateProduct,
+          widget.isLoggedInMandatory,
+        ),
       ),
     );
     for (int index = 0; index < _helpers.length; index++) {
@@ -111,6 +117,7 @@ class _EditNewPackagingsState extends State<EditNewPackagings>
                 setState(() => _removePackagingAt(deleteIndex)),
             helper: _helpers[index],
             categories: upToDateProduct.categories,
+            productType: upToDateProduct.productType,
           ),
         ),
       );
@@ -139,14 +146,14 @@ class _EditNewPackagingsState extends State<EditNewPackagings>
     );
     children.add(
       Padding(
-        padding: const EdgeInsets.only(
+        padding: const EdgeInsetsDirectional.only(
           top: VERY_LARGE_SPACE,
-          left: SMALL_SPACE,
-          right: SMALL_SPACE,
+          start: SMALL_SPACE,
+          end: SMALL_SPACE,
         ),
         child: addPanelButton(
           appLocalizations.edit_packagings_element_add.toUpperCase(),
-          iconData: Icons.add,
+          leadingIcon: const Icon(Icons.add),
           onPressed: () => setState(
             () => _addPackagingToControllers(
               ProductPackaging(),
@@ -158,38 +165,35 @@ class _EditNewPackagingsState extends State<EditNewPackagings>
     );
     children.add(
       Padding(
-        padding: const EdgeInsets.only(
+        padding: const EdgeInsetsDirectional.only(
           bottom: VERY_LARGE_SPACE,
-          left: SMALL_SPACE,
-          right: SMALL_SPACE,
+          start: SMALL_SPACE,
+          end: SMALL_SPACE,
         ),
         child: addPanelButton(
           appLocalizations.add_packaging_photo_button_label.toUpperCase(),
           onPressed: () async => confirmAndUploadNewPicture(
-            this,
+            context,
             imageField: ImageField.OTHER,
             barcode: barcode,
+            productType: upToDateProduct.productType,
             language: ProductQuery.getLanguage(),
+            isLoggedInMandatory: widget.isLoggedInMandatory,
           ),
-          iconData: Icons.add_a_photo,
+          leadingIcon: const Icon(Icons.add_a_photo),
         ),
       ),
     );
 
-    return WillPopScope(
-      onWillPop: () async => _mayExitPage(saving: false),
-      child: UnfocusWhenTapOutside(
+    return WillPopScope2(
+      onWillPop: () async => (await _mayExitPage(saving: false), null),
+      child: UnfocusFieldWhenTapOutside(
         child: SmoothScaffold(
           fixKeyboard: true,
-          appBar: SmoothAppBar(
-            title: Text(appLocalizations.edit_packagings_title),
-            subTitle: upToDateProduct.productName != null
-                ? Text(
-                    upToDateProduct.productName!,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  )
-                : null,
+          appBar: buildEditProductAppBar(
+            context: context,
+            title: appLocalizations.edit_packagings_title,
+            product: upToDateProduct,
           ),
           body: ListView(
             padding: const EdgeInsets.only(top: LARGE_SPACE),
@@ -291,14 +295,15 @@ class _EditNewPackagingsState extends State<EditNewPackagings>
 
     AnalyticsHelper.trackProductEdit(
       AnalyticsEditEvents.packagingComponents,
-      barcode,
+      upToDateProduct,
       true,
     );
 
     await BackgroundTaskDetails.addTask(
       changedProduct,
-      widget: this,
+      context: context,
       stamp: BackgroundTaskDetailsStamp.structuredPackaging,
+      productType: upToDateProduct.productType,
     );
     return true;
   }
@@ -322,7 +327,7 @@ Color _getSmoothCardColorAlternate(final BuildContext context, int index) {
     if (index.isOdd) {
       cardColor = PRIMARY_GREY_COLOR;
     } else {
-      cardColor = darkColorScheme.background;
+      cardColor = darkColorScheme.surface;
     }
   }
 

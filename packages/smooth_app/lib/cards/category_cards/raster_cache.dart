@@ -9,7 +9,6 @@ class RasterCache extends AbstractCache {
     super.iconUrl, {
     super.width,
     super.height,
-    super.displayAssetWhileWaiting = true,
   });
 
   @override
@@ -18,6 +17,7 @@ class RasterCache extends AbstractCache {
     if (fullFilenames.isEmpty) {
       return getDefaultUnknown();
     }
+
     return Image.network(
       iconUrl!,
       width: width,
@@ -31,17 +31,25 @@ class RasterCache extends AbstractCache {
         if (loadingProgress == null) {
           return child;
         }
-        return displayAssetWhileWaiting
-            ? RasterAsyncAsset(
-                AssetCacheHelper(
-                  fullFilenames,
-                  iconUrl!,
-                  width: width,
-                  height: height,
-                ),
-              )
-            : getCircularProgressIndicator();
+        return _localAssetWidget(fullFilenames);
       },
+      errorBuilder: (
+        final BuildContext context,
+        final Object error,
+        final StackTrace? stackTrace,
+      ) =>
+          _localAssetWidget(fullFilenames),
+    );
+  }
+
+  RasterAsyncAsset _localAssetWidget(List<String> fullFilenames) {
+    return RasterAsyncAsset(
+      AssetCacheHelper(
+        fullFilenames,
+        iconUrl!,
+        width: width,
+        height: height,
+      ),
     );
   }
 }

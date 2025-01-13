@@ -1,17 +1,20 @@
+import 'dart:io';
+
 import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart' hide Listener;
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
-import 'package:lottie/lottie.dart';
 import 'package:provider/provider.dart';
 import 'package:smooth_app/data_models/onboarding_loader.dart';
-import 'package:smooth_app/data_models/user_preferences.dart';
+import 'package:smooth_app/data_models/preferences/user_preferences.dart';
 import 'package:smooth_app/database/local_database.dart';
 import 'package:smooth_app/generic_lib/design_constants.dart';
-import 'package:smooth_app/helpers/app_helper.dart';
 import 'package:smooth_app/helpers/permission_helper.dart';
 import 'package:smooth_app/helpers/provider_helper.dart';
 import 'package:smooth_app/pages/onboarding/onboarding_bottom_bar.dart';
 import 'package:smooth_app/pages/onboarding/onboarding_flow_navigator.dart';
+import 'package:smooth_app/resources/app_animations.dart' as animations;
+import 'package:smooth_app/themes/theme_provider.dart';
+import 'package:smooth_app/widgets/smooth_text.dart';
 
 class PermissionsPage extends StatefulWidget {
   const PermissionsPage(
@@ -40,67 +43,79 @@ class _PermissionsPageState extends State<PermissionsPage> {
         PermissionListener newValue,
       ) {
         if (newValue.value.isGranted && !_eventConsumed) {
-          _moveToNextScreen(context);
+          _endOnboarding(context);
           _eventConsumed = true;
         }
       },
       child: ColoredBox(
         color: widget.backgroundColor,
-        child: Column(
-          children: <Widget>[
-            Expanded(
+        child: SafeArea(
+          bottom: Platform.isAndroid,
+          child: Column(
+            children: <Widget>[
+              Expanded(
                 child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: LARGE_SPACE),
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    FractionallySizedBox(
-                      widthFactor: 0.5,
-                      child: Transform.rotate(
-                        angle: -0.2,
-                        child: Lottie.asset(
-                          'assets/animations/barcode.json',
-                          package: AppHelper.APP_PACKAGE,
+                  padding: const EdgeInsets.symmetric(horizontal: LARGE_SPACE),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        LayoutBuilder(builder:
+                            (BuildContext context, BoxConstraints constraints) {
+                          return SizedBox.square(
+                            dimension: constraints.maxWidth * 0.5,
+                            child: Transform.rotate(
+                              angle: -0.2,
+                              child: const animations.BarcodeAnimation(),
+                            ),
+                          );
+                        }),
+                        const SizedBox(height: LARGE_SPACE),
+                        AutoSizeText(
+                          appLocalizations.permissions_page_title,
+                          maxLines: 2,
+                          style: Theme.of(context)
+                              .textTheme
+                              .displayLarge!
+                              .apply(
+                                  color: const Color.fromARGB(255, 51, 51, 51)),
+                          textAlign: TextAlign.center,
                         ),
-                      ),
+                        const SizedBox(height: SMALL_SPACE),
+                        AutoSizeText(
+                          appLocalizations.permissions_page_body1,
+                          maxLines: 2,
+                          textAlign: TextAlign.center,
+                          style:
+                              WellSpacedTextHelper.TEXT_STYLE_WITH_WELL_SPACED,
+                        ),
+                        const SizedBox(height: MEDIUM_SPACE),
+                        AutoSizeText(
+                          appLocalizations.permissions_page_body2,
+                          maxLines: 3,
+                          textAlign: TextAlign.center,
+                          style:
+                              WellSpacedTextHelper.TEXT_STYLE_WITH_WELL_SPACED,
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: LARGE_SPACE),
-                    AutoSizeText(
-                      appLocalizations.permissions_page_title,
-                      maxLines: 2,
-                      style: Theme.of(context)
-                          .textTheme
-                          .displayLarge!
-                          .apply(color: const Color.fromARGB(255, 51, 51, 51)),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: SMALL_SPACE),
-                    AutoSizeText(
-                      appLocalizations.permissions_page_body1,
-                      maxLines: 2,
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: MEDIUM_SPACE),
-                    AutoSizeText(
-                      appLocalizations.permissions_page_body2,
-                      maxLines: 3,
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
+                  ),
                 ),
               ),
-            )),
-            OnboardingBottomBar(
-              leftButton: _IgnoreButton(
-                onPermissionIgnored: () => _moveToNextScreen(context),
-              ),
-              rightButton: _AskPermissionButton(
-                onPermissionIgnored: () => _moveToNextScreen(context),
-              ),
-              backgroundColor: widget.backgroundColor,
-            )
-          ],
+              OnboardingBottomBar(
+                leftButton: !Platform.isIOS
+                    ? _IgnoreButton(
+                        onPermissionIgnored: () => _endOnboarding(context),
+                      )
+                    : null,
+                rightButton: _AskPermissionButton(
+                  onPermissionIgnored: () => _endOnboarding(context),
+                ),
+                backgroundColor: widget.backgroundColor,
+                semanticsHorizontalOrder: false,
+              )
+            ],
+          ),
         ),
       ),
     );
@@ -108,14 +123,21 @@ class _PermissionsPageState extends State<PermissionsPage> {
 
   static const OnboardingPage _onboardingPage = OnboardingPage.PERMISSIONS_PAGE;
 
-  Future<void> _moveToNextScreen(BuildContext context) async {
+  Future<void> _endOnboarding(BuildContext context) async {
+    context.read<ThemeProvider>().finishOnboarding();
+
+    if (!context.mounted) {
+      return;
+    }
     await OnboardingLoader(context.read<LocalDatabase>()).runAtNextTime(
       _onboardingPage,
       context,
     );
 
-    // ignore: use_build_context_synchronously
-    return OnboardingFlowNavigator(context.read<UserPreferences>())
+    if (!context.mounted) {
+      return;
+    }
+    await OnboardingFlowNavigator(context.read<UserPreferences>())
         .navigateToPage(
       context,
       _onboardingPage.getNextPage(),
@@ -145,7 +167,9 @@ class _AskPermissionButton extends StatelessWidget {
       },
       backgroundColor: Colors.white,
       foregroundColor: Colors.black,
-      label: appLocalizations.authorize_button_label,
+      label: Platform.isIOS
+          ? appLocalizations.onboarding_continue_button
+          : appLocalizations.authorize_button_label,
     );
   }
 }

@@ -1,102 +1,125 @@
-import 'dart:io';
-
-import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:smooth_app/generic_lib/design_constants.dart';
-import 'package:smooth_app/helpers/app_helper.dart';
-import 'package:smooth_app/pages/onboarding/next_button.dart';
+import 'package:provider/provider.dart';
+import 'package:smooth_app/data_models/onboarding_loader.dart';
+import 'package:smooth_app/data_models/preferences/user_preferences.dart';
+import 'package:smooth_app/database/local_database.dart';
 import 'package:smooth_app/pages/onboarding/onboarding_flow_navigator.dart';
+import 'package:smooth_app/pages/onboarding/v2/onboarding_bottom_hills.dart';
+import 'package:smooth_app/resources/app_animations.dart';
+import 'package:smooth_app/themes/smooth_theme.dart';
+import 'package:smooth_app/themes/smooth_theme_colors.dart';
 import 'package:smooth_app/widgets/smooth_scaffold.dart';
+import 'package:smooth_app/widgets/smooth_text.dart';
 
 /// Onboarding page: "reinvention"
-class ReinventionPage extends StatelessWidget {
-  const ReinventionPage(this.backgroundColor);
-
-  final Color backgroundColor;
+class OnboardingHomePage extends StatelessWidget {
+  const OnboardingHomePage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    const double muchTooBigFontSize = 150;
-    final AppLocalizations appLocalizations = AppLocalizations.of(context);
-    final TextStyle headlineStyle = Theme.of(context)
-        .textTheme
-        .displayMedium!
-        .copyWith(fontSize: muchTooBigFontSize);
-    final Size screenSize = MediaQuery.of(context).size;
-
     return SmoothScaffold(
-      backgroundColor: backgroundColor,
-      brightness: Brightness.dark,
-      body: Stack(
+      backgroundColor: const Color(0xFFE3F3FE),
+      body: Provider<OnboardingConfig>.value(
+        value: OnboardingConfig._(MediaQuery.sizeOf(context)),
+        child: Stack(
+          children: <Widget>[
+            const _OnboardingWelcomePageContent(),
+            OnboardingBottomHills(
+              onTap: () async {
+                final UserPreferences userPreferences =
+                    context.read<UserPreferences>();
+                final LocalDatabase localDatabase =
+                    context.read<LocalDatabase>();
+
+                /// Enable crash reports and user tracking by default
+                /// (Can be disabled by the user later in the settings)
+                await userPreferences.setCrashReports(true);
+                await userPreferences.setUserTracking(true);
+
+                if (context.mounted) {
+                  await OnboardingLoader(localDatabase)
+                      .runAtNextTime(OnboardingPage.HOME_PAGE, context);
+                }
+
+                if (context.mounted) {
+                  await OnboardingFlowNavigator(userPreferences).navigateToPage(
+                    context,
+                    OnboardingPage.HOME_PAGE.getNextPage(),
+                  );
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OnboardingWelcomePageContent extends StatelessWidget {
+  const _OnboardingWelcomePageContent();
+
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations appLocalizations = AppLocalizations.of(context);
+    final double fontMultiplier = OnboardingConfig.of(context).fontMultiplier;
+    final double hillsHeight = OnboardingBottomHills.height(context);
+
+    return Padding(
+      padding: EdgeInsetsDirectional.only(
+        top: hillsHeight * 0.5 + MediaQuery.viewPaddingOf(context).top,
+        bottom: hillsHeight,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: <Widget>[
-          SafeArea(
-            bottom: false,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: <Widget>[
-                Flexible(
-                  flex: 30,
-                  child: Padding(
-                    padding: const EdgeInsets.all(SMALL_SPACE),
-                    child: Center(
-                      child: AutoSizeText(
-                        appLocalizations.onboarding_reinventing_text1,
-                        style: headlineStyle,
-                        maxLines: 3,
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  ),
-                ),
-                Flexible(
-                  flex: 15,
-                  child: SvgPicture.asset(
-                    'assets/onboarding/birthday-cake.svg',
-                    package: AppHelper.APP_PACKAGE,
-                  ),
-                ),
-                Flexible(
-                  flex: 30,
-                  child: Padding(
-                    padding: const EdgeInsets.all(SMALL_SPACE),
-                    child: Center(
-                      child: AutoSizeText(
-                        appLocalizations.onboarding_reinventing_text2,
-                        style: headlineStyle,
-                        maxLines: 3,
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  ),
-                ),
-                Flexible(
-                  flex: 25,
-                  child: SvgPicture.asset(
-                    'assets/onboarding/title.svg',
-                    package: AppHelper.APP_PACKAGE,
-                  ),
-                ),
-                SvgPicture.asset(
-                  // supposed to be a square or something like that
-                  // at least not too tall
-                  'assets/onboarding/reinvention.svg',
-                  width: screenSize.width,
-                  package: AppHelper.APP_PACKAGE,
-                ),
-              ],
+          Expanded(
+            flex: 15,
+            child: Text(
+              appLocalizations.onboarding_home_welcome_text1,
+              style: TextStyle(
+                fontSize: 45 * fontMultiplier,
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: TextAlign.center,
             ),
           ),
-          Positioned(
-            bottom: 0,
-            child: SafeArea(
-              bottom: !Platform.isIOS,
-              child: const NextButton(
-                OnboardingPage.REINVENTION,
-                backgroundColor: null,
-                nextKey: Key('nextAfterReinvention'),
+          const Expanded(
+            flex: 37,
+            child: _SunAndCloud(),
+          ),
+          Expanded(
+            flex: 45,
+            child: FractionallySizedBox(
+              widthFactor: 0.65,
+              child: Align(
+                alignment: const Alignment(0, -0.2),
+                child: TextWithBubbleParts(
+                  text: appLocalizations.onboarding_home_welcome_text2,
+                  fontMultiplier: fontMultiplier,
+                  backgroundColor:
+                      context.extension<SmoothColorsThemeExtension>().orange,
+                  textAlign: TextAlign.center,
+                  textStyle: const TextStyle(
+                    fontSize: 26,
+                    height: 1.48,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  bubblePadding: const EdgeInsetsDirectional.only(
+                    top: 1.0,
+                    bottom: 5.0,
+                    start: 15.0,
+                    end: 15.0,
+                  ),
+                  bubbleTextStyle: const TextStyle(
+                    fontSize: 22,
+                    height: 1.53,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                ),
               ),
             ),
           ),
@@ -104,4 +127,84 @@ class ReinventionPage extends StatelessWidget {
       ),
     );
   }
+}
+
+class _SunAndCloud extends StatefulWidget {
+  const _SunAndCloud();
+
+  @override
+  State<_SunAndCloud> createState() => _SunAndCloudState();
+}
+
+class _SunAndCloudState extends State<_SunAndCloud>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _animation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller =
+        AnimationController(vsync: this, duration: const Duration(seconds: 2))
+          ..addListener(() => setState(() {}));
+    _animation = Tween<double>(
+      begin: -1.0,
+      end: 1.0,
+    ).animate(_controller);
+    _controller.repeat(reverse: true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final TextDirection textDirection = Directionality.of(context);
+
+    return RepaintBoundary(
+      child: LayoutBuilder(builder: (
+        BuildContext context,
+        BoxConstraints constraints,
+      ) {
+        return Stack(
+          children: <Widget>[
+            Positioned.directional(
+              top: constraints.maxHeight * 0.3,
+              bottom: constraints.maxHeight * 0.2,
+              start: (_animation.value * 161.0) * 0.3,
+              textDirection: textDirection,
+              child: SvgPicture.asset('assets/onboarding/cloud.svg'),
+            ),
+            const Align(
+              alignment: Alignment.center,
+              child: SunAnimation(type: SunAnimationType.loop),
+            ),
+            Positioned.directional(
+              top: constraints.maxHeight * 0.22,
+              bottom: constraints.maxHeight * 0.35,
+              end: (_animation.value * 40.0) - 31,
+              textDirection: textDirection,
+              child: SvgPicture.asset('assets/onboarding/cloud.svg'),
+            ),
+          ],
+        );
+      }),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+}
+
+// TODO(g123k): Move elsewhere when the onboarding will be redesigned
+class OnboardingConfig {
+  OnboardingConfig._(Size screenSize)
+      : fontMultiplier = computeFontMultiplier(screenSize);
+  final double fontMultiplier;
+
+  static double computeFontMultiplier(Size screenSize) =>
+      ((screenSize.width * 45) / 428) / 45;
+
+  static OnboardingConfig of(BuildContext context) =>
+      context.watch<OnboardingConfig>();
 }

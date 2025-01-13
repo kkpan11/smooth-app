@@ -14,16 +14,16 @@ const Color _maybeTextColor = Colors.black;
 class QuestionAnswersOptions extends StatelessWidget {
   const QuestionAnswersOptions(
     this.question, {
-    Key? key,
+    super.key,
     required this.onAnswer,
-  }) : super(key: key);
+  });
 
   final RobotoffQuestion question;
   final Function(InsightAnnotation) onAnswer;
 
   @override
   Widget build(BuildContext context) {
-    final double yesNoHeight = MediaQuery.of(context).size.width / (3 * 1.25);
+    final double yesNoHeight = MediaQuery.sizeOf(context).width / (3 * 1.25);
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -108,8 +108,8 @@ class QuestionAnswersOptions extends StatelessWidget {
         child: TextButton.icon(
           onPressed: () => onAnswer(insightAnnotation),
           style: ButtonStyle(
-            backgroundColor: MaterialStateProperty.all(backgroundColor),
-            shape: MaterialStateProperty.all(
+            backgroundColor: WidgetStateProperty.all(backgroundColor),
+            shape: WidgetStateProperty.all(
               const RoundedRectangleBorder(
                 borderRadius: ROUNDED_BORDER_RADIUS,
               ),

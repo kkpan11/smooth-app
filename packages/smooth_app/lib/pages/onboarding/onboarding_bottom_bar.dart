@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:smooth_app/generic_lib/design_constants.dart';
 
 /// Bottom Bar during onboarding. Typical use case: previous/next buttons.
@@ -6,11 +7,15 @@ class OnboardingBottomBar extends StatelessWidget {
   const OnboardingBottomBar({
     required this.rightButton,
     required this.backgroundColor,
-    this.leftButton,
+    required this.leftButton,
+    this.semanticsHorizontalOrder = true,
   });
 
-  final Widget rightButton;
   final Widget? leftButton;
+  final Widget rightButton;
+
+  /// If [true], the [leftButton] will be said first by the screen reader.
+  final bool semanticsHorizontalOrder;
 
   /// Color of the background where we put the buttons.
   ///
@@ -19,7 +24,7 @@ class OnboardingBottomBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Size screenSize = MediaQuery.of(context).size;
+    final Size screenSize = MediaQuery.sizeOf(context);
     // Side padding is 8% of total width.
     final double sidePadding = screenSize.width * .08;
     final bool hasPrevious = leftButton != null;
@@ -43,8 +48,15 @@ class OnboardingBottomBar extends StatelessWidget {
                 : MainAxisAlignment.end,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: <Widget>[
-              if (leftButton != null) leftButton!,
-              rightButton,
+              if (leftButton != null)
+                Semantics(
+                  sortKey: OrdinalSortKey(semanticsHorizontalOrder ? 2.0 : 1.0),
+                  child: leftButton,
+                ),
+              Semantics(
+                sortKey: OrdinalSortKey(semanticsHorizontalOrder ? 1.0 : 2.0),
+                child: rightButton,
+              ),
             ],
           ),
         ),
@@ -78,12 +90,11 @@ class OnboardingBottomButton extends StatelessWidget {
           key: nextKey,
           onPressed: onPressed,
           style: ButtonStyle(
-            backgroundColor: MaterialStateProperty.all(backgroundColor),
+            backgroundColor: WidgetStateProperty.all(backgroundColor),
             overlayColor: backgroundColor == Colors.white
-                ? MaterialStateProperty.all<Color>(
-                    Theme.of(context).splashColor)
+                ? WidgetStateProperty.all<Color>(Theme.of(context).splashColor)
                 : null,
-            shape: MaterialStateProperty.all<RoundedRectangleBorder>(
+            shape: WidgetStateProperty.all<RoundedRectangleBorder>(
               const RoundedRectangleBorder(
                   borderRadius: BorderRadius.all(Radius.circular(40))),
             ),
@@ -111,7 +122,7 @@ class OnboardingBottomIcon extends StatelessWidget {
   final VoidCallback onPressed;
   final Color backgroundColor;
   final Color foregroundColor;
-  final IconData icon;
+  final Widget icon;
   final EdgeInsetsGeometry? iconPadding;
 
   @override
@@ -121,11 +132,12 @@ class OnboardingBottomIcon extends StatelessWidget {
           padding: const EdgeInsets.all(MEDIUM_SPACE),
           backgroundColor: backgroundColor,
           foregroundColor: foregroundColor,
+          iconColor: foregroundColor,
         ),
         onPressed: onPressed,
         child: Padding(
           padding: iconPadding ?? EdgeInsets.zero,
-          child: Icon(icon),
+          child: icon,
         ),
       );
 }

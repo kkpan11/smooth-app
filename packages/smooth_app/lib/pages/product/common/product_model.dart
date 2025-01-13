@@ -2,65 +2,62 @@ import 'package:flutter/material.dart';
 import 'package:openfoodfacts/openfoodfacts.dart';
 import 'package:smooth_app/data_models/fetched_product.dart';
 import 'package:smooth_app/database/dao_product.dart';
+import 'package:smooth_app/database/dao_product_last_access.dart';
 import 'package:smooth_app/database/local_database.dart';
+import 'package:smooth_app/pages/product/common/product_loading_status.dart';
 import 'package:smooth_app/query/barcode_product_query.dart';
-
-/// Loading status.
-enum LoadingStatus {
-  /// Loading product from local database.
-  LOADING,
-
-  /// Product loaded.
-  LOADED,
-
-  /// Error.
-  ERROR,
-
-  /// Downloading product from back-end.
-  DOWNLOADING,
-}
 
 /// Model for product database get and refresh.
 class ProductModel with ChangeNotifier {
   /// In the constructor we retrieve async'ly the product from the local db.
   ProductModel(this.barcode, this.localDatabase) {
-    _daoProduct = DaoProduct(localDatabase);
-    _clear();
+    localDatabase.upToDate.showInterest(barcode);
+    DaoProductLastAccess(localDatabase).put(barcode);
     _asyncLoad();
   }
 
   final String barcode;
   final LocalDatabase localDatabase;
-  late final DaoProduct _daoProduct;
 
+  DaoProduct get _daoProduct => DaoProduct(localDatabase);
+
+  /// Visible version of the product: local database + local changes on top.
   Product? _product;
-  Product? _initialProduct;
+
   Product? get product =>
-      _loadingStatus == LoadingStatus.LOADED ? _product : null;
+      _loadingStatus == ProductLoadingStatus.LOADED ? _product : null;
+
+  /// Latest version of the product from the local database.
+  ///
+  /// Special case 1: when the product data is [download]ed, it's also stored in
+  /// the database.
+  /// Special case 2: when there's no data in the database but we have pending
+  /// local changes, we "create" a minimalist product (we don't store it in the
+  /// database though) in order to put the changes on top of it.
+  Product? _databaseProduct;
 
   /// General loading status.
-  late LoadingStatus _loadingStatus;
-  LoadingStatus get loadingStatus => _loadingStatus;
+  ProductLoadingStatus _loadingStatus = ProductLoadingStatus.LOADING;
 
-  /// General loading error.
-  String? _loadingError;
-  String? get loadingError => _loadingError;
+  ProductLoadingStatus get loadingStatus => _loadingStatus;
 
-  /// Downloading status.
-  FetchedProductStatus? _downloadingStatus;
-  FetchedProductStatus? get downloadingStatus => _downloadingStatus;
+  /// General loading error: a failing [FetchedProduct].
+  FetchedProduct? _loadingError;
 
-  void setLocalUpToDate() {
-    if (_initialProduct == null) {
-      return;
-    }
-    _product = localDatabase.upToDate.getLocalUpToDate(_initialProduct!);
-    _loadingStatus = LoadingStatus.LOADED;
+  FetchedProduct? get loadingError => _loadingError;
+
+  @override
+  void dispose() {
+    localDatabase.upToDate.loseInterest(barcode);
+    super.dispose();
   }
 
-  void _clear() {
-    _loadingStatus = LoadingStatus.LOADING;
-    _loadingError = null;
+  void setLocalUpToDate() {
+    if (_databaseProduct == null) {
+      _product = null;
+      return;
+    }
+    _product = localDatabase.upToDate.getLocalUpToDate(_databaseProduct!);
   }
 
   /// Safely notifies listeners.
@@ -78,52 +75,49 @@ class ProductModel with ChangeNotifier {
   /// This is the printed error:
   /// A ProductModel was used after being disposed.
   /// Once you have called dispose() on a ProductModel, it can no longer be used.
-  void _safeNotifyListeners() {
+  void _safeNotifyListeners(final ProductLoadingStatus status) {
     try {
+      _loadingStatus = status;
       notifyListeners();
     } catch (e) {
       // we don't care
     }
   }
 
+  /// Tries to get the product from the database.
   Future<void> _asyncLoad() async {
-    try {
-      _initialProduct = await _daoProduct.get(barcode);
-      if (_initialProduct != null) {
-        // from the local database, no error, perfect!
-        _loadingStatus = LoadingStatus.LOADED;
-        _safeNotifyListeners();
-        return;
-      }
-      await download();
-    } catch (e) {
-      _loadingError = e.toString();
-      _loadingStatus = LoadingStatus.ERROR;
-      _safeNotifyListeners();
+    _databaseProduct = await _daoProduct.get(barcode);
+    if (_databaseProduct != null) {
+      // found in the local database, perfect!
+      _safeNotifyListeners(ProductLoadingStatus.LOADED);
+      return;
     }
+    if (localDatabase.upToDate.hasPendingChanges(barcode)) {
+      // not in the local database (because not uploaded + refreshed),
+      // but with local not uploaded yet changes.
+      // so we use a fake empty product instead.
+      _databaseProduct = Product(barcode: barcode);
+      _safeNotifyListeners(ProductLoadingStatus.LOADED);
+      return;
+    }
+    // we need to download now!
+    await download();
   }
 
   /// Downloads the product. To be used as a refresh after a network issue.
   Future<void> download() async {
-    try {
-      _loadingStatus = LoadingStatus.DOWNLOADING;
-      _safeNotifyListeners();
-      final FetchedProduct fetchedProduct = await BarcodeProductQuery(
-        barcode: barcode,
-        daoProduct: _daoProduct,
-        isScanned: false,
-      ).getFetchedProduct();
-      if (fetchedProduct.status == FetchedProductStatus.ok) {
-        _loadingStatus = LoadingStatus.LOADED;
-        _safeNotifyListeners();
-        return;
-      }
-      _downloadingStatus = fetchedProduct.status;
-      _loadingStatus = LoadingStatus.ERROR;
-    } catch (e) {
-      _loadingError = e.toString();
-      _loadingStatus = LoadingStatus.ERROR;
+    _safeNotifyListeners(ProductLoadingStatus.DOWNLOADING);
+    final FetchedProduct fetchedProduct = await BarcodeProductQuery(
+      barcode: barcode,
+      daoProduct: _daoProduct,
+      isScanned: false,
+    ).getFetchedProduct();
+    if (fetchedProduct.status == FetchedProductStatus.ok) {
+      _databaseProduct = fetchedProduct.product;
+      _safeNotifyListeners(ProductLoadingStatus.LOADED);
+      return;
     }
-    _safeNotifyListeners();
+    _loadingError = fetchedProduct;
+    _safeNotifyListeners(ProductLoadingStatus.ERROR);
   }
 }

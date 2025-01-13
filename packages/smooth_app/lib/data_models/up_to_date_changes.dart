@@ -51,6 +51,9 @@ class UpToDateChanges {
   /// * [BackgroundTaskDetails]
   /// * [BackgroundTaskImage]
   Product _overwrite(final Product initial, final Product change) {
+    if (change.productType != null) {
+      initial.productType = change.productType;
+    }
     if (change.productName != null) {
       initial.productName = change.productName;
     }
@@ -80,7 +83,10 @@ class UpToDateChanges {
     if (change.noNutritionData != null) {
       initial.noNutritionData = change.noNutritionData;
     }
-    if (change.nutriments != null) {
+    // cf. https://github.com/openfoodfacts/smooth-app/issues/4627
+    // If we don't check if nutriments is empty, most of the time we overwrite
+    // potentially existing nutriments with an empty map.
+    if (change.nutriments != null && !change.nutriments!.isEmpty()) {
       initial.nutriments = change.nutriments;
     }
     if (change.servingSize != null) {

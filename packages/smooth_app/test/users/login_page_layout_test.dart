@@ -2,15 +2,16 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openfoodfacts/openfoodfacts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:smooth_app/data_models/preferences/user_preferences.dart';
 import 'package:smooth_app/data_models/product_preferences.dart';
 import 'package:smooth_app/data_models/user_management_provider.dart';
-import 'package:smooth_app/data_models/user_preferences.dart';
 import 'package:smooth_app/pages/user_management/login_page.dart';
 import 'package:smooth_app/themes/color_provider.dart';
 import 'package:smooth_app/themes/contrast_provider.dart';
 import 'package:smooth_app/themes/theme_provider.dart';
 
 import '../tests_utils/goldens.dart';
+import '../tests_utils/local_database_mock.dart';
 import '../tests_utils/mocks.dart';
 
 void main() {
@@ -51,6 +52,7 @@ void main() {
             textContrastProvider,
             colorProvider,
             const LoginPage(),
+            localDatabase: MockLocalDatabase(),
           ),
         );
         await tester.pump();

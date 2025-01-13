@@ -3,15 +3,13 @@ import 'package:smooth_app/data_models/product_list.dart';
 import 'package:smooth_app/data_models/product_list_supplier.dart';
 import 'package:smooth_app/database/dao_product.dart';
 import 'package:smooth_app/database/dao_product_list.dart';
-import 'package:smooth_app/database/local_database.dart';
-import 'package:smooth_app/query/paged_product_query.dart';
 
 /// [ProductListSupplier] with a server query flavor
 class QueryProductListSupplier extends ProductListSupplier {
   QueryProductListSupplier(
-    final PagedProductQuery productQuery,
-    final LocalDatabase localDatabase,
-  ) : super(productQuery, localDatabase);
+    super.productQuery,
+    super.localDatabase,
+  );
 
   @override
   Future<String?> asyncLoad() async {
@@ -23,7 +21,11 @@ class QueryProductListSupplier extends ProductListSupplier {
         productList.setAll(searchResult.products!);
         productList.totalSize = searchResult.count ?? 0;
         partialProductList.add(productList);
-        await DaoProduct(localDatabase).putAll(searchResult.products!);
+        await DaoProduct(localDatabase).putAll(
+          searchResult.products!,
+          productQuery.language,
+          productType: productQuery.productType,
+        );
       }
       await DaoProductList(localDatabase).put(productList);
       return null;

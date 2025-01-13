@@ -4,6 +4,7 @@ import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:matomo_tracker/matomo_tracker.dart';
 import 'package:openfoodfacts/openfoodfacts.dart';
 import 'package:provider/provider.dart';
+import 'package:smooth_app/data_models/preferences/user_preferences.dart';
 import 'package:smooth_app/data_models/user_management_provider.dart';
 import 'package:smooth_app/generic_lib/design_constants.dart';
 import 'package:smooth_app/generic_lib/dialogs/smooth_alert_dialog.dart';
@@ -11,6 +12,7 @@ import 'package:smooth_app/generic_lib/loading_dialog.dart';
 import 'package:smooth_app/generic_lib/widgets/smooth_text_form_field.dart';
 import 'package:smooth_app/helpers/analytics_helper.dart';
 import 'package:smooth_app/helpers/user_management_helper.dart';
+import 'package:smooth_app/query/product_query.dart';
 import 'package:smooth_app/widgets/smooth_app_bar.dart';
 import 'package:smooth_app/widgets/smooth_scaffold.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -46,22 +48,19 @@ class _SignUpPageState extends State<SignUpPage> with TraceableClientMixin {
   bool _disagreed = false;
 
   @override
-  String get traceTitle => 'sign_up_page';
-
-  @override
-  String get traceName => 'Opened sign_up_page';
+  String get actionName => 'Opened sign_up_page';
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final AppLocalizations appLocalizations = AppLocalizations.of(context);
-    final Size size = MediaQuery.of(context).size;
+    final Size size = MediaQuery.sizeOf(context);
 
-    Color getCheckBoxColor(Set<MaterialState> states) {
-      const Set<MaterialState> interactiveStates = <MaterialState>{
-        MaterialState.pressed,
-        MaterialState.hovered,
-        MaterialState.focused,
+    Color getCheckBoxColor(Set<WidgetState> states) {
+      const Set<WidgetState> interactiveStates = <WidgetState>{
+        WidgetState.pressed,
+        WidgetState.hovered,
+        WidgetState.focused,
       };
       if (states.any(interactiveStates.contains)) {
         return theme.colorScheme.onSurface;
@@ -166,6 +165,7 @@ class _SignUpPageState extends State<SignUpPage> with TraceableClientMixin {
                 focusNode: _password1FocusNode,
                 textInputAction: TextInputAction.next,
                 hintText: appLocalizations.sign_up_page_password_hint,
+                maxLines: 1,
                 onFieldSubmitted: (_) =>
                     FocusScope.of(context).requestFocus(_password2FocusNode),
                 prefixIcon: const Icon(Icons.vpn_key),
@@ -189,6 +189,7 @@ class _SignUpPageState extends State<SignUpPage> with TraceableClientMixin {
                 focusNode: _password2FocusNode,
                 textInputAction: TextInputAction.send,
                 hintText: appLocalizations.sign_up_page_confirm_password_hint,
+                maxLines: 1,
                 prefixIcon: const Icon(Icons.vpn_key),
                 autofillHints: const <String>[
                   AutofillHints.newPassword,
@@ -237,14 +238,14 @@ class _SignUpPageState extends State<SignUpPage> with TraceableClientMixin {
                   child: Checkbox(
                     value: _foodProducer,
                     fillColor:
-                        MaterialStateProperty.resolveWith(getCheckBoxColor),
+                        WidgetStateProperty.resolveWith(getCheckBoxColor),
                     onChanged: (_) {},
                   ),
                 ),
                 title: Text(
                   appLocalizations.sign_up_page_producer_checkbox,
                   style: theme.textTheme.bodyMedium
-                      ?.copyWith(color: theme.colorScheme.onBackground),
+                      ?.copyWith(color: theme.colorScheme.onSurface),
                 ),
               ),
               if (_foodProducer) ...<Widget>[
@@ -275,24 +276,24 @@ class _SignUpPageState extends State<SignUpPage> with TraceableClientMixin {
                   child: Checkbox(
                     value: _subscribe,
                     fillColor:
-                        MaterialStateProperty.resolveWith(getCheckBoxColor),
+                        WidgetStateProperty.resolveWith(getCheckBoxColor),
                     onChanged: (_) {},
                   ),
                 ),
                 title: Text(
                   appLocalizations.sign_up_page_subscribe_checkbox,
                   style: theme.textTheme.bodyMedium
-                      ?.copyWith(color: theme.colorScheme.onBackground),
+                      ?.copyWith(color: theme.colorScheme.onSurface),
                 ),
               ),
               const SizedBox(height: space),
               ElevatedButton(
                 onPressed: () async => _signUp(),
                 style: ButtonStyle(
-                  minimumSize: MaterialStateProperty.all<Size>(
+                  minimumSize: WidgetStateProperty.all<Size>(
                     Size(size.width * 0.5, theme.buttonTheme.height + 10),
                   ),
-                  shape: MaterialStateProperty.all<RoundedRectangleBorder>(
+                  shape: WidgetStateProperty.all<RoundedRectangleBorder>(
                     const RoundedRectangleBorder(
                       borderRadius: CIRCULAR_BORDER_RADIUS,
                     ),
@@ -316,6 +317,7 @@ class _SignUpPageState extends State<SignUpPage> with TraceableClientMixin {
   }
 
   Future<void> _signUp() async {
+    ///add and make complete onboarding false at signup.
     final AppLocalizations appLocalisations = AppLocalizations.of(context);
     _disagreed = !_agree;
     setState(() {});
@@ -334,6 +336,11 @@ class _SignUpPageState extends State<SignUpPage> with TraceableClientMixin {
         email: _emailController.trimmedText,
         newsletter: _subscribe,
         orgName: _foodProducer ? _brandController.trimmedText : null,
+        country: ProductQuery.getCountry(),
+        language: ProductQuery.getLanguage(),
+        uriHelper: ProductQuery.getUriProductHelper(
+          productType: ProductType.food,
+        ),
       ),
       title: appLocalisations.sign_up_page_action_doing_it,
     );
@@ -369,14 +376,37 @@ class _SignUpPageState extends State<SignUpPage> with TraceableClientMixin {
             .contains(SignUpStatusError.USERNAME_ALREADY_USED)) {
           _userFocusNode.requestFocus();
           errorMessage = appLocalisations.sign_up_page_user_name_already_used;
+        } else if (status.statusErrors!
+            .contains(SignUpStatusError.SERVER_BUSY)) {
+          errorMessage = appLocalisations.sign_up_page_server_busy;
         } else {
-          errorMessage = status.error;
+          // Let's try to find the error in
+          final Iterable<RegExpMatch> allMatches =
+              RegExp('(<li class="error">)(.*?)(</li>)')
+                  .allMatches(status.error!);
+          if (allMatches.isNotEmpty) {
+            final StringBuffer buffer = StringBuffer();
+            for (final RegExpMatch match in allMatches) {
+              if (buffer.isNotEmpty) {
+                buffer.write('\n\n');
+              }
+
+              buffer.write(match.group(2));
+            }
+            errorMessage = buffer.toString();
+          } else {
+            errorMessage = status.error;
+          }
         }
       }
 
-      // ignore: use_build_context_synchronously
-      await LoadingDialog.error(context: context, title: errorMessage);
-
+      if (mounted) {
+        await LoadingDialog.error(
+          context: context,
+          title: errorMessage,
+          shouldOpenNewIssue: status.shouldOpenNewIssue(),
+        );
+      }
       return;
     }
     AnalyticsHelper.trackEvent(AnalyticsEvent.registerAction);
@@ -384,7 +414,15 @@ class _SignUpPageState extends State<SignUpPage> with TraceableClientMixin {
       return;
     }
     await context.read<UserManagementProvider>().putUser(user);
-    // ignore: use_build_context_synchronously
+    if (!mounted) {
+      return;
+    }
+    final UserPreferences userPreferences =
+        await UserPreferences.getUserPreferences();
+    userPreferences.resetOnboarding();
+    if (!mounted) {
+      return;
+    }
     await showDialog<void>(
       context: context,
       builder: (BuildContext context) => SmoothAlertDialog(
@@ -408,12 +446,11 @@ class _TermsOfUseCheckbox extends StatelessWidget {
     required this.disagree,
     required this.onCheckboxChanged,
     required this.checkboxColorResolver,
-    Key? key,
-  }) : super(key: key);
+  });
 
   final bool agree;
   final bool disagree;
-  final MaterialPropertyResolver<Color?> checkboxColorResolver;
+  final WidgetPropertyResolver<Color?> checkboxColorResolver;
   final ValueChanged<bool> onCheckboxChanged;
 
   @override
@@ -436,7 +473,7 @@ class _TermsOfUseCheckbox extends StatelessWidget {
                   ignoring: true,
                   child: Checkbox(
                     value: agree,
-                    fillColor: MaterialStateProperty.resolveWith(
+                    fillColor: WidgetStateProperty.resolveWith(
                       checkboxColorResolver,
                     ),
                     onChanged: (_) {},
@@ -451,7 +488,7 @@ class _TermsOfUseCheckbox extends StatelessWidget {
                           // additional space needed because of the next text span
                           text: '${appLocalizations.sign_up_page_agree_text} ',
                           style: theme.textTheme.bodyMedium?.copyWith(
-                            color: theme.colorScheme.onBackground,
+                            color: theme.colorScheme.onSurface,
                           ),
                         ),
                         TextSpan(
@@ -475,7 +512,7 @@ class _TermsOfUseCheckbox extends StatelessWidget {
                       semanticLabel: appLocalizations.termsOfUse,
                       Icons.info,
                       color: checkboxColorResolver(
-                        <MaterialState>{MaterialState.selected},
+                        <WidgetState>{WidgetState.selected},
                       ),
                     ),
                   ),

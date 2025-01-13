@@ -1,18 +1,23 @@
-import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:openfoodfacts/openfoodfacts.dart';
-import 'package:smooth_app/cards/category_cards/svg_cache.dart';
 import 'package:smooth_app/data_models/fetched_product.dart';
 import 'package:smooth_app/database/dao_product.dart';
 import 'package:smooth_app/database/local_database.dart';
+import 'package:smooth_app/generic_lib/bottom_sheets/smooth_bottom_sheet.dart';
+import 'package:smooth_app/generic_lib/buttons/smooth_button_with_arrow.dart';
 import 'package:smooth_app/generic_lib/design_constants.dart';
 import 'package:smooth_app/generic_lib/dialogs/smooth_alert_dialog.dart';
 import 'package:smooth_app/generic_lib/loading_dialog.dart';
-import 'package:smooth_app/helpers/app_helper.dart';
+import 'package:smooth_app/helpers/haptic_feedback_helper.dart';
 import 'package:smooth_app/pages/navigator/app_navigator.dart';
 import 'package:smooth_app/query/barcode_product_query.dart';
+import 'package:smooth_app/resources/app_animations.dart';
+import 'package:smooth_app/themes/smooth_theme.dart';
+import 'package:smooth_app/themes/smooth_theme_colors.dart';
+import 'package:smooth_app/themes/theme_provider.dart';
+import 'package:smooth_app/widgets/smooth_barcode_widget.dart';
+import 'package:smooth_app/widgets/smooth_text.dart';
 
 /// Dialog helper for product barcode search
 class ProductDialogHelper {
@@ -23,11 +28,11 @@ class ProductDialogHelper {
   });
 
   static const String unknownSvgNutriscore =
-      'https://static.openfoodfacts.org/images/attributes/nutriscore-unknown.svg';
-  static const String unknownSvgEcoscore =
-      'https://static.openfoodfacts.org/images/attributes/ecoscore-unknown.svg';
+      'https://static.openfoodfacts.org/images/attributes/dist/nutriscore-unknown.svg';
+  static const String unknownSvgEnvironmentalScore =
+      'https://static.openfoodfacts.org/images/attributes/dist/green-score-unknown.svg';
   static const String unknownSvgNova =
-      'https://static.openfoodfacts.org/images/attributes/nova-group-unknown.svg';
+      'https://static.openfoodfacts.org/images/attributes/dist/nova-group-unknown.svg';
 
   final String barcode;
   final BuildContext context;
@@ -36,7 +41,10 @@ class ProductDialogHelper {
   Future<FetchedProduct> openBestChoice() async {
     final Product? product = await DaoProduct(localDatabase).get(barcode);
     if (product != null) {
-      return FetchedProduct(product);
+      return FetchedProduct.found(product);
+    }
+    if (localDatabase.upToDate.hasPendingChanges(barcode)) {
+      return FetchedProduct.found(Product(barcode: barcode));
     }
     return openUniqueProductSearch();
   }
@@ -50,98 +58,110 @@ class ProductDialogHelper {
             isScanned: false,
           ).getFetchedProduct(),
           title: '${AppLocalizations.of(context).looking_for}: $barcode') ??
-      FetchedProduct.error(FetchedProductStatus.userCancelled);
+      const FetchedProduct.userCancelled();
 
-  void _openProductNotFoundDialog() => showDialog<Widget>(
-        context: context,
-        builder: (BuildContext context) => SmoothAlertDialog(
-          body: LayoutBuilder(
-            builder: (
-              final BuildContext context,
-              final BoxConstraints constraints,
-            ) {
-              final MediaQueryData mediaQueryData = MediaQuery.of(context);
-              final AppLocalizations appLocalizations =
-                  AppLocalizations.of(context);
-              const double svgPadding = SMALL_SPACE;
-              final double svgWidth = (constraints.maxWidth - svgPadding) / 2;
-              return SizedBox(
-                height: mediaQueryData.size.height * .5,
-                child: Column(
-                  mainAxisSize: MainAxisSize.max,
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: <Widget>[
-                    Expanded(
-                      flex: 25,
-                      child: SvgPicture.asset(
-                        'assets/onboarding/birthday-cake.svg',
-                        package: AppHelper.APP_PACKAGE,
-                      ),
-                    ),
-                    const SizedBox(height: SMALL_SPACE),
-                    Expanded(
-                      flex: 25,
-                      child: AutoSizeText(
-                        appLocalizations.new_product_dialog_title,
-                        style: Theme.of(context).textTheme.displayMedium,
-                        textAlign: TextAlign.center,
-                        maxLines: 2,
-                      ),
-                    ),
-                    const SizedBox(height: SMALL_SPACE),
-                    Expanded(
-                      flex: 10,
-                      child: Text(
-                        appLocalizations.barcode_barcode(barcode),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                    const SizedBox(height: SMALL_SPACE),
-                    Expanded(
-                      flex: 15,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: <Widget>[
-                          SvgCache(
-                            unknownSvgNutriscore,
-                            width: svgWidth,
-                          ),
-                          const SizedBox(width: svgPadding),
-                          SvgCache(
-                            unknownSvgEcoscore,
-                            width: svgWidth,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: SMALL_SPACE),
-                    Expanded(
-                      flex: 25,
-                      child: AutoSizeText(
-                        appLocalizations.new_product_dialog_description,
-                        textAlign: TextAlign.center,
-                        maxLines: 3,
-                      ),
-                    ),
-                  ],
+  void _openProductNotFoundDialog() {
+    showSmoothModalSheet(
+      context: context,
+      builder: (BuildContext context) {
+        final AppLocalizations appLocalizations = AppLocalizations.of(context);
+        final SmoothColorsThemeExtension theme =
+            context.extension<SmoothColorsThemeExtension>();
+        final bool lightTheme = context.lightTheme();
+
+        return SmoothModalSheet(
+          title: appLocalizations.new_product_found_title,
+          prefixIndicator: true,
+          bodyPadding: const EdgeInsetsDirectional.only(
+            start: VERY_LARGE_SPACE,
+            end: VERY_LARGE_SPACE,
+            top: LARGE_SPACE,
+          ),
+          body: Stack(
+            children: <Widget>[
+              PositionedDirectional(
+                bottom: 0.0,
+                start: 5.0,
+                child: Transform.scale(
+                  scale: -1.1,
+                  child: const OrangeErrorAnimation(
+                    sizeMultiplier: 1.2,
+                  ),
                 ),
-              );
-            },
+              ),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  TextWithBubbleParts(
+                    text: appLocalizations.new_product_found_text,
+                    backgroundColor: theme.primarySemiDark,
+                    textStyle: const TextStyle(
+                      fontSize: 15.5,
+                    ),
+                    bubbleTextStyle: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14.5,
+                    ),
+                    bubblePadding: const EdgeInsetsDirectional.only(
+                      top: 2.5,
+                      bottom: 3.5,
+                      start: 10.0,
+                      end: 10.0,
+                    ),
+                  ),
+                  const SizedBox(height: LARGE_SPACE),
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius: ANGULAR_BORDER_RADIUS,
+                      color:
+                          lightTheme ? theme.primaryMedium : theme.primaryLight,
+                    ),
+                    child: SmoothBarcodeWidget(
+                      barcode: barcode,
+                      height: 75.0,
+                      padding: const EdgeInsetsDirectional.only(
+                        top: MEDIUM_SPACE,
+                        start: VERY_LARGE_SPACE,
+                        end: VERY_LARGE_SPACE,
+                        bottom: MEDIUM_SPACE,
+                      ),
+                      color: Colors.black,
+                      backgroundColor:
+                          lightTheme ? Colors.white : Colors.transparent,
+                    ),
+                  ),
+                  const SizedBox(height: MEDIUM_SPACE * 2),
+                  Align(
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: SmoothButtonWithArrow(
+                      text: appLocalizations.new_product_found_button,
+                      onTap: () async {
+                        await AppNavigator.of(context).push(
+                          AppRoutes.PRODUCT_CREATOR(barcode),
+                        );
+                        if (context.mounted) {
+                          Navigator.of(context).pop();
+                        }
+                      },
+                    ),
+                  ),
+                  SizedBox(
+                    height:
+                        MediaQuery.of(context).viewPadding.bottom + SMALL_SPACE,
+                  ),
+                ],
+              ),
+            ],
           ),
-          positiveAction: SmoothActionButton(
-            text: AppLocalizations.of(context).contribute,
-            onPressed: () => AppNavigator.of(context).push(
-              AppRoutes.PRODUCT_CREATOR(barcode),
-            ),
-          ),
-          negativeAction: SmoothActionButton(
-            text: AppLocalizations.of(context).close,
-            onPressed: () => Navigator.pop(context),
-          ),
-        ),
-      );
+        );
+      },
+    );
+
+    SmoothHapticFeedback.tadam();
+  }
 
   static Widget getErrorMessage(final String message) => Row(
         children: <Widget>[
@@ -153,13 +173,18 @@ class ProductDialogHelper {
 
   void _openErrorMessage(final String message) => showDialog<void>(
         context: context,
-        builder: (BuildContext context) => SmoothAlertDialog(
-          body: getErrorMessage(message),
-          positiveAction: SmoothActionButton(
-            text: AppLocalizations.of(context).close,
-            onPressed: () => Navigator.pop(context),
-          ),
-        ),
+        builder: (BuildContext context) {
+          final AppLocalizations localizations = AppLocalizations.of(context);
+
+          return SmoothAlertDialog(
+            title: localizations.product_internet_error_modal_title,
+            body: getErrorMessage(message),
+            positiveAction: SmoothActionButton(
+              text: localizations.close,
+              onPressed: () => Navigator.pop(context),
+            ),
+          );
+        },
       );
 
   /// Opens an error dialog; to be used only if the status is not ok.
@@ -171,13 +196,13 @@ class ProductDialogHelper {
       case FetchedProductStatus.userCancelled:
         return;
       case FetchedProductStatus.internetError:
-        _openErrorMessage(appLocalizations.product_internet_error);
+        _openErrorMessage(
+          appLocalizations.product_internet_error_modal_message(
+              fetchedProduct.exceptionString ?? '-'),
+        );
         return;
       case FetchedProductStatus.internetNotFound:
         _openProductNotFoundDialog();
-        return;
-      case FetchedProductStatus.codeInvalid:
-        _openErrorMessage(appLocalizations.barcode_invalid_error);
         return;
     }
   }

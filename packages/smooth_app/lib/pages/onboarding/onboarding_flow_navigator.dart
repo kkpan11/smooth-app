@@ -1,30 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:smooth_app/data_models/user_preferences.dart';
+import 'package:smooth_app/data_models/preferences/user_preferences.dart';
 import 'package:smooth_app/database/local_database.dart';
-import 'package:smooth_app/pages/inherited_data_manager.dart';
 import 'package:smooth_app/pages/navigator/app_navigator.dart';
-import 'package:smooth_app/pages/onboarding/consent_analytics_page.dart';
 import 'package:smooth_app/pages/onboarding/permissions_page.dart';
 import 'package:smooth_app/pages/onboarding/preferences_page.dart';
 import 'package:smooth_app/pages/onboarding/reinvention_page.dart';
 import 'package:smooth_app/pages/onboarding/sample_eco_card_page.dart';
 import 'package:smooth_app/pages/onboarding/sample_health_card_page.dart';
-import 'package:smooth_app/pages/onboarding/scan_example.dart';
 import 'package:smooth_app/pages/onboarding/welcome_page.dart';
 import 'package:smooth_app/pages/page_manager.dart';
+import 'package:smooth_app/pages/scan/carousel/scan_carousel_manager.dart';
 import 'package:smooth_app/widgets/smooth_scaffold.dart';
+import 'package:smooth_app/widgets/will_pop_scope.dart';
 
 enum OnboardingPage {
   NOT_STARTED,
-  REINVENTION,
+  HOME_PAGE,
   WELCOME,
-  SCAN_EXAMPLE,
   HEALTH_CARD_EXAMPLE,
   ECO_CARD_EXAMPLE,
   PREFERENCES_PAGE,
   PERMISSIONS_PAGE,
-  CONSENT_PAGE,
   ONBOARDING_COMPLETE;
 
   OnboardingPage getPrevPage() {
@@ -51,12 +48,10 @@ enum OnboardingPage {
   Color getBackgroundColor() {
     switch (this) {
       case OnboardingPage.NOT_STARTED:
-      case OnboardingPage.REINVENTION:
+      case OnboardingPage.HOME_PAGE:
         return const Color(0xFFDFF4FF);
       case OnboardingPage.WELCOME:
         return const Color(0xFFFCFCFC);
-      case OnboardingPage.SCAN_EXAMPLE:
-        return const Color(0xFFE3F6FF);
       case OnboardingPage.HEALTH_CARD_EXAMPLE:
         return const Color(0xFFFFF1D1);
       case OnboardingPage.ECO_CARD_EXAMPLE:
@@ -65,8 +60,6 @@ enum OnboardingPage {
         return const Color(0xFFEBF1FF);
       case OnboardingPage.PERMISSIONS_PAGE:
         return const Color(0xFFEBF1FF);
-      case OnboardingPage.CONSENT_PAGE:
-        return const Color(0xFFFFF2DF);
       case OnboardingPage.ONBOARDING_COMPLETE:
         // whatever, it's not used
         return Colors.black;
@@ -78,15 +71,10 @@ enum OnboardingPage {
     final Color backgroundColor = getBackgroundColor();
     switch (this) {
       case OnboardingPage.NOT_STARTED:
-      case OnboardingPage.REINVENTION:
-        return ReinventionPage(backgroundColor);
+      case OnboardingPage.HOME_PAGE:
+        return const OnboardingHomePage();
       case OnboardingPage.WELCOME:
         return WelcomePage(backgroundColor);
-      case OnboardingPage.SCAN_EXAMPLE:
-        return _wrapWidgetInCustomBackNavigator(
-          context,
-          ScanExample(backgroundColor),
-        );
       case OnboardingPage.HEALTH_CARD_EXAMPLE:
         return _wrapWidgetInCustomBackNavigator(
           context,
@@ -107,13 +95,8 @@ enum OnboardingPage {
           context,
           PermissionsPage(backgroundColor),
         );
-      case OnboardingPage.CONSENT_PAGE:
-        return _wrapWidgetInCustomBackNavigator(
-          context,
-          ConsentAnalyticsPage(backgroundColor),
-        );
       case OnboardingPage.ONBOARDING_COMPLETE:
-        return InheritedDataManager(child: PageManager());
+        return ExternalScanCarouselManager(child: PageManager());
     }
   }
 
@@ -121,8 +104,8 @@ enum OnboardingPage {
     BuildContext context,
     Widget widget,
   ) =>
-      WillPopScope(
-        onWillPop: () async => false,
+      WillPopScope2(
+        onWillPop: () async => (false, null),
         // wrap the widget in [Builder] to allow navigation on the [context].
         child: Builder(
           builder: (BuildContext context) => SmoothScaffold(
@@ -147,16 +130,23 @@ class OnboardingFlowNavigator {
   static final List<OnboardingPage> _historyOnboardingNav = <OnboardingPage>[];
 
   Future<void> navigateToPage(BuildContext context, OnboardingPage page) async {
-    _userPreferences.setLastVisitedOnboardingPage(page);
+    await _userPreferences.setLastVisitedOnboardingPage(page);
     _historyOnboardingNav.add(page);
 
-    final MaterialPageRoute<void> route = MaterialPageRoute<void>(
-      builder: (BuildContext context) => page.getPageWidget(context),
-    );
+    if (!context.mounted) {
+      return;
+    }
 
     if (page.isOnboardingComplete()) {
-      AppNavigator.of(context).pushReplacement(AppRoutes.HOME);
+      AppNavigator.of(context)
+        ..clearStack()
+        ..pushReplacement(
+          AppRoutes.HOME(redraw: true),
+        );
     } else {
+      final MaterialPageRoute<void> route = MaterialPageRoute<void>(
+        builder: (BuildContext context) => page.getPageWidget(context),
+      );
       await Navigator.of(context).push<void>(route);
     }
   }

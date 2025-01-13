@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:matomo_tracker/matomo_tracker.dart';
 import 'package:openfoodfacts/openfoodfacts.dart';
 import 'package:provider/provider.dart';
@@ -6,13 +8,19 @@ import 'package:smooth_app/data_models/up_to_date_mixin.dart';
 import 'package:smooth_app/database/local_database.dart';
 import 'package:smooth_app/generic_lib/design_constants.dart';
 import 'package:smooth_app/generic_lib/widgets/smooth_card.dart';
+import 'package:smooth_app/helpers/product_cards_helper.dart';
 import 'package:smooth_app/knowledge_panel/knowledge_panels/knowledge_panel_expanded_card.dart';
 import 'package:smooth_app/knowledge_panel/knowledge_panels_builder.dart';
-import 'package:smooth_app/pages/inherited_data_manager.dart';
 import 'package:smooth_app/pages/product/common/product_refresher.dart';
+import 'package:smooth_app/pages/product/product_field_editor.dart';
+import 'package:smooth_app/pages/scan/carousel/scan_carousel_manager.dart';
+import 'package:smooth_app/themes/smooth_theme.dart';
+import 'package:smooth_app/themes/smooth_theme_colors.dart';
+import 'package:smooth_app/themes/theme_provider.dart';
 import 'package:smooth_app/widgets/smooth_app_bar.dart';
 import 'package:smooth_app/widgets/smooth_scaffold.dart';
 
+/// Detail page of knowledge panels (if you click on the forward/more button).
 class KnowledgePanelPage extends StatefulWidget {
   const KnowledgePanelPage({
     required this.panelId,
@@ -29,10 +37,7 @@ class KnowledgePanelPage extends StatefulWidget {
 class _KnowledgePanelPageState extends State<KnowledgePanelPage>
     with TraceableClientMixin, UpToDateMixin {
   @override
-  String get traceTitle => 'knowledge_panel_page';
-
-  @override
-  String get traceName => 'Opened full knowledge panel page';
+  String get actionName => 'Opened full knowledge panel page';
 
   @override
   void initState() {
@@ -41,7 +46,8 @@ class _KnowledgePanelPageState extends State<KnowledgePanelPage>
   }
 
   static KnowledgePanelPanelGroupElement? _groupElementOf(
-      BuildContext context) {
+    BuildContext context,
+  ) {
     try {
       return Provider.of<KnowledgePanelPanelGroupElement>(context);
     } catch (_) {
@@ -51,28 +57,58 @@ class _KnowledgePanelPageState extends State<KnowledgePanelPage>
 
   @override
   Widget build(BuildContext context) {
+    final AppLocalizations appLocalizations = AppLocalizations.of(context);
+    final String title = _getTitle();
+
     context.watch<LocalDatabase>();
     refreshUpToDate();
     return SmoothScaffold(
+      backgroundColor: context.lightTheme()
+          ? context.extension<SmoothColorsThemeExtension>().primaryLight
+          : null,
       appBar: SmoothAppBar(
-        title: Text(
-          _getTitle(),
-          maxLines: 2,
+        title: Semantics(
+          label: _getTitleForAccessibility(appLocalizations, title),
+          child: Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         ),
+        subTitle: Text(
+          getProductNameAndBrands(upToDateProduct, appLocalizations),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        actions: _actions(),
       ),
       body: RefreshIndicator(
         onRefresh: () => _refreshProduct(context),
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          child: SmoothCard(
-            padding: const EdgeInsets.all(
-              SMALL_SPACE,
+        child: Scrollbar(
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: EdgeInsetsDirectional.only(
+              top: SMALL_SPACE,
+              start: VERY_SMALL_SPACE,
+              end: VERY_SMALL_SPACE,
+              bottom: SMALL_SPACE + MediaQuery.viewPaddingOf(context).bottom,
             ),
-            child: KnowledgePanelExpandedCard(
-              panelId: widget.panelId,
-              product: upToDateProduct,
-              isInitiallyExpanded: true,
-            ),
+            children: <Widget>[
+              SmoothCard(
+                padding: const EdgeInsetsDirectional.only(
+                  bottom: LARGE_SPACE,
+                ),
+                child: DefaultTextStyle.merge(
+                  style: const TextStyle(fontSize: 15.0, height: 1.5),
+                  child: KnowledgePanelExpandedCard(
+                    panelId: widget.panelId,
+                    product: upToDateProduct,
+                    isInitiallyExpanded: true,
+                    isClickable: true,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -81,13 +117,14 @@ class _KnowledgePanelPageState extends State<KnowledgePanelPage>
 
   Future<void> _refreshProduct(BuildContext context) async {
     try {
-      final String barcode = InheritedDataManager.of(context).currentBarcode;
-      if (barcode.isEmpty) {
+      final String? barcode =
+          ExternalScanCarouselManager.read(context).currentBarcode;
+      if (barcode?.isEmpty == true) {
         return;
       }
       await ProductRefresher().fetchAndRefresh(
-        barcode: barcode,
-        widget: this,
+        barcode: barcode ?? '',
+        context: context,
       );
     } catch (e) {
       //no refreshing during onboarding
@@ -101,7 +138,7 @@ class _KnowledgePanelPageState extends State<KnowledgePanelPage>
         groupElement?.title!.isNotEmpty == true) {
       return groupElement!.title!;
     }
-    final KnowledgePanel? panel = KnowledgePanelWidget.getKnowledgePanel(
+    final KnowledgePanel? panel = KnowledgePanelsBuilder.getKnowledgePanel(
       upToDateProduct,
       widget.panelId,
     );
@@ -109,5 +146,47 @@ class _KnowledgePanelPageState extends State<KnowledgePanelPage>
       return (panel?.titleElement?.title)!;
     }
     return '';
+  }
+
+  String _getTitleForAccessibility(
+    AppLocalizations appLocalizations,
+    String title,
+  ) {
+    final String productName = upToDateProduct.productName ??
+        upToDateProduct.abbreviatedName ??
+        upToDateProduct.genericName ??
+        '';
+    if (title.isEmpty) {
+      return appLocalizations.knowledge_panel_page_title_no_title(productName);
+    } else {
+      return appLocalizations.knowledge_panel_page_title(
+        title,
+        productName,
+      );
+    }
+  }
+
+  // TODO(g123k): Improve this mechanism to be more flexible
+  List<Widget>? _actions() {
+    if (widget.panelId == 'ingredients') {
+      return <Widget>[
+        IconButton(
+          onPressed: () async => ProductFieldOcrIngredientEditor().edit(
+            context: context,
+            product: upToDateProduct,
+          ),
+          icon: const Icon(Icons.edit),
+          tooltip: AppLocalizations.of(context).ingredients_editing_title,
+        ),
+      ];
+    }
+
+    return null;
+  }
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(StringProperty('panelId', widget.panelId));
   }
 }

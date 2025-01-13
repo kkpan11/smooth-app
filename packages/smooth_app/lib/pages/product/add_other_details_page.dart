@@ -3,13 +3,17 @@ import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:openfoodfacts/openfoodfacts.dart';
 import 'package:smooth_app/background/background_task_details.dart';
 import 'package:smooth_app/generic_lib/design_constants.dart';
+import 'package:smooth_app/generic_lib/widgets/smooth_card.dart';
 import 'package:smooth_app/generic_lib/widgets/smooth_text_form_field.dart';
 import 'package:smooth_app/helpers/analytics_helper.dart';
+import 'package:smooth_app/helpers/product_cards_helper.dart';
 import 'package:smooth_app/pages/product/common/product_buttons.dart';
 import 'package:smooth_app/pages/product/may_exit_page_helper.dart';
 import 'package:smooth_app/pages/text_field_helper.dart';
-import 'package:smooth_app/widgets/smooth_app_bar.dart';
+import 'package:smooth_app/themes/smooth_theme_colors.dart';
+import 'package:smooth_app/themes/theme_provider.dart';
 import 'package:smooth_app/widgets/smooth_scaffold.dart';
+import 'package:smooth_app/widgets/will_pop_scope.dart';
 
 /// Input of a product's less significant details, like website.
 class AddOtherDetailsPage extends StatefulWidget {
@@ -24,9 +28,8 @@ class AddOtherDetailsPage extends StatefulWidget {
 }
 
 class _AddOtherDetailsPageState extends State<AddOtherDetailsPage> {
-  late final TextEditingControllerWithInitialValue _websiteController;
+  late final TextEditingControllerWithHistory _websiteController;
 
-  final double _heightSpace = LARGE_SPACE;
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   late final Product _product;
 
@@ -34,8 +37,9 @@ class _AddOtherDetailsPageState extends State<AddOtherDetailsPage> {
   void initState() {
     super.initState();
     _product = widget.product;
-    _websiteController =
-        TextEditingControllerWithInitialValue(text: _product.website ?? '');
+    _websiteController = TextEditingControllerWithHistory(
+      text: _product.website ?? '',
+    );
   }
 
   @override
@@ -51,49 +55,51 @@ class _AddOtherDetailsPageState extends State<AddOtherDetailsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final Size size = MediaQuery.of(context).size;
     final AppLocalizations appLocalizations = AppLocalizations.of(context);
-    return WillPopScope(
-      onWillPop: () async => _mayExitPage(saving: false),
+
+    return WillPopScope2(
+      onWillPop: () async => (await _mayExitPage(saving: false), null),
       child: SmoothScaffold(
         fixKeyboard: true,
-        appBar: SmoothAppBar(
-          centerTitle: false,
-          title:
-              Text(appLocalizations.edit_product_form_item_other_details_title),
-          subTitle: widget.product.productName != null
-              ? Text(widget.product.productName!,
-                  overflow: TextOverflow.ellipsis, maxLines: 1)
-              : null,
-          ignoreSemanticsForSubtitle: true,
+        appBar: buildEditProductAppBar(
+          context: context,
+          title: appLocalizations.edit_product_form_item_other_details_title,
+          product: widget.product,
         ),
+        backgroundColor: context.lightTheme()
+            ? Theme.of(context)
+                .extension<SmoothColorsThemeExtension>()!
+                .primaryLight
+            : null,
         body: Form(
           key: _formKey,
           child: Scrollbar(
             child: ListView(
+              padding: const EdgeInsetsDirectional.only(
+                top: MEDIUM_SPACE,
+                start: MEDIUM_SPACE,
+                end: MEDIUM_SPACE,
+              ),
               children: <Widget>[
-                SizedBox(height: _heightSpace),
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: size.width * 0.05),
-                  child: Column(
-                    children: <Widget>[
-                      ExcludeSemantics(
-                        child: Text(
-                          appLocalizations.barcode_barcode(_product.barcode!),
-                          style:
-                              Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                SmoothCardWithRoundedHeader(
+                  title: appLocalizations.product_field_website_title,
+                  leading: const Icon(Icons.link),
+                  child: Padding(
+                    padding: const EdgeInsetsDirectional.only(
+                      bottom: MEDIUM_SPACE,
+                      start: MEDIUM_SPACE,
+                      end: MEDIUM_SPACE,
+                    ),
+                    child: Column(
+                      children: <Widget>[
+                        SmoothTextFormField(
+                          controller: _websiteController,
+                          type: TextFieldTypes.PLAIN_TEXT,
+                          hintText:
+                              appLocalizations.product_field_website_title,
                         ),
-                      ),
-                      SizedBox(height: _heightSpace),
-                      SmoothTextFormField(
-                        controller: _websiteController,
-                        type: TextFieldTypes.PLAIN_TEXT,
-                        hintText: appLocalizations.product_field_website_title,
-                      ),
-                      SizedBox(height: _heightSpace),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ],
@@ -113,7 +119,7 @@ class _AddOtherDetailsPageState extends State<AddOtherDetailsPage> {
   }
 
   /// Returns `true` if any value differs with initial state.
-  bool _isEdited() => _websiteController.valueHasChanged;
+  bool _isEdited() => _websiteController.isDifferentFromInitialValue;
 
   /// Exits the page if the [flag] is `true`.
   void _exitPage(final bool flag) {
@@ -147,13 +153,14 @@ class _AddOtherDetailsPageState extends State<AddOtherDetailsPage> {
 
     AnalyticsHelper.trackProductEdit(
       AnalyticsEditEvents.otherDetails,
-      widget.product.barcode!,
+      widget.product,
       true,
     );
     await BackgroundTaskDetails.addTask(
       _getMinimalistProduct(),
-      widget: this,
+      context: context,
       stamp: BackgroundTaskDetailsStamp.otherDetails,
+      productType: _product.productType,
     );
 
     return true;

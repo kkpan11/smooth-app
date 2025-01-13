@@ -13,8 +13,8 @@ class RandomQuestionsQuery extends QuestionsQuery {
   ) async {
     final RobotoffQuestionResult result = await RobotoffAPIClient.getQuestions(
       ProductQuery.getLanguage(),
-      user: ProductQuery.getUser(),
-      country: ProductQuery.getCountry(),
+      user: ProductQuery.getReadUser(),
+      countries: <OpenFoodFactsCountry>[ProductQuery.getCountry()],
       count: count,
       questionOrder: RobotoffQuestionOrder.random,
     );
@@ -31,6 +31,7 @@ class RandomQuestionsQuery extends QuestionsQuery {
     await ProductRefresher().silentFetchAndRefreshList(
       barcodes: barcodes,
       localDatabase: localDatabase,
+      productType: ProductType.food,
     );
     return result.questions ?? <RobotoffQuestion>[];
   }

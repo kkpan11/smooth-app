@@ -1,21 +1,21 @@
-import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:openfoodfacts/openfoodfacts.dart';
 import 'package:provider/provider.dart';
 import 'package:smooth_app/background/background_task_details.dart';
 import 'package:smooth_app/generic_lib/design_constants.dart';
-import 'package:smooth_app/generic_lib/widgets/smooth_card.dart';
 import 'package:smooth_app/helpers/analytics_helper.dart';
 import 'package:smooth_app/helpers/collections_helper.dart';
 import 'package:smooth_app/helpers/product_cards_helper.dart';
+import 'package:smooth_app/pages/input/unfocus_field_when_tap_outside.dart';
 import 'package:smooth_app/pages/product/common/product_buttons.dart';
 import 'package:smooth_app/pages/product/may_exit_page_helper.dart';
 import 'package:smooth_app/pages/product/simple_input_page_helpers.dart';
-import 'package:smooth_app/pages/product/simple_input_text_field.dart';
 import 'package:smooth_app/pages/product/simple_input_widget.dart';
-import 'package:smooth_app/widgets/smooth_app_bar.dart';
+import 'package:smooth_app/themes/smooth_theme_colors.dart';
+import 'package:smooth_app/themes/theme_provider.dart';
 import 'package:smooth_app/widgets/smooth_scaffold.dart';
+import 'package:smooth_app/widgets/will_pop_scope.dart';
 
 /// Simple input page: we have a list of terms, we add, we remove, we save.
 class SimpleInputPage extends StatefulWidget {
@@ -55,58 +55,58 @@ class _SimpleInputPageState extends State<SimpleInputPage> {
   Widget build(BuildContext context) {
     final AppLocalizations appLocalizations = AppLocalizations.of(context);
     final List<Widget> simpleInputs = <Widget>[];
+    final List<String> titles = <String>[];
 
     for (int i = 0; i < widget.helpers.length; i++) {
+      titles.add(widget.helpers[i].getTitle(appLocalizations));
       simpleInputs.add(
         Padding(
           padding: i == 0
               ? EdgeInsets.zero
               : const EdgeInsets.only(top: LARGE_SPACE),
-          child: SmoothCard(
-            // This provider will handle the dispose() call for us
-            child: MultiProvider(
-              providers: <ChangeNotifierProvider<dynamic>>[
-                ChangeNotifierProvider<TextEditingController>(
-                  create: (_) {
-                    _controllers.replace(i, TextEditingController());
-                    return _controllers[i];
-                  },
-                ),
-                ChangeNotifierProvider<AbstractSimpleInputPageHelper>(
-                  create: (_) => widget.helpers[i],
-                ),
-              ],
-              child: SimpleInputWidget(
-                helper: widget.helpers[i],
-                product: widget.product,
-                controller: _controllers[i],
+          // This provider will handle the dispose() call for us
+          child: MultiProvider(
+            providers: <ChangeNotifierProvider<dynamic>>[
+              ChangeNotifierProvider<TextEditingController>(
+                create: (_) {
+                  _controllers.replace(i, TextEditingController());
+                  return _controllers[i];
+                },
               ),
+              ChangeNotifierProvider<AbstractSimpleInputPageHelper>(
+                create: (_) => widget.helpers[i],
+              ),
+            ],
+            child: SimpleInputWidget(
+              helper: widget.helpers[i],
+              product: widget.product,
+              controller: _controllers[i],
+              displayTitle: true,
             ),
           ),
         ),
       );
     }
 
-    return WillPopScope(
-      onWillPop: () async => _mayExitPage(saving: false),
-      child: UnfocusWhenTapOutside(
+    return WillPopScope2(
+      onWillPop: () async => (await _mayExitPage(saving: false), null),
+      child: UnfocusFieldWhenTapOutside(
         child: SmoothScaffold(
           fixKeyboard: true,
-          appBar: SmoothAppBar(
-            centerTitle: false,
-            title: AutoSizeText(
-              getProductName(widget.product, appLocalizations),
-              maxLines: widget.product.barcode?.isNotEmpty == true ? 1 : 2,
-            ),
-            subTitle: widget.product.barcode != null
-                ? ExcludeSemantics(
-                    excluding: true, child: Text(widget.product.barcode!))
-                : null,
+          appBar: buildEditProductAppBar(
+            context: context,
+            title: titles.join(', '),
+            product: widget.product,
           ),
-          body: Padding(
-            padding: const EdgeInsets.all(SMALL_SPACE),
-            child: Scrollbar(
-              child: ListView(children: simpleInputs),
+          backgroundColor: context.lightTheme()
+              ? Theme.of(context)
+                  .extension<SmoothColorsThemeExtension>()!
+                  .primaryLight
+              : null,
+          body: Scrollbar(
+            child: ListView(
+              padding: const EdgeInsetsDirectional.all(MEDIUM_SPACE),
+              children: simpleInputs,
             ),
           ),
           bottomNavigationBar: ProductBottomButtonsBar(
@@ -175,13 +175,13 @@ class _SimpleInputPageState extends State<SimpleInputPage> {
     if (widget.helpers.length > 1) {
       AnalyticsHelper.trackProductEdit(
         AnalyticsEditEvents.powerEditScreen,
-        widget.product.barcode!,
+        widget.product,
         true,
       );
     } else {
       AnalyticsHelper.trackProductEdit(
         widget.helpers[0].getAnalyticsEditEvent(),
-        widget.product.barcode!,
+        widget.product,
         true,
       );
     }
@@ -191,9 +191,10 @@ class _SimpleInputPageState extends State<SimpleInputPage> {
         in changedProducts.entries) {
       await BackgroundTaskDetails.addTask(
         entry.value,
-        widget: this,
+        context: context,
         stamp: entry.key,
         showSnackBar: first,
+        productType: widget.product.productType,
       );
       first = false;
     }

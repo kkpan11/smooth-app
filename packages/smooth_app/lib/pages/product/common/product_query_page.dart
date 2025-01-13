@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:iso_countries/iso_countries.dart';
@@ -16,27 +15,37 @@ import 'package:smooth_app/generic_lib/buttons/smooth_large_button_with_icon.dar
 import 'package:smooth_app/generic_lib/design_constants.dart';
 import 'package:smooth_app/generic_lib/duration_constants.dart';
 import 'package:smooth_app/generic_lib/loading_dialog.dart';
+import 'package:smooth_app/generic_lib/widgets/smooth_app_logo.dart';
 import 'package:smooth_app/generic_lib/widgets/smooth_back_button.dart';
 import 'package:smooth_app/generic_lib/widgets/smooth_card.dart';
 import 'package:smooth_app/generic_lib/widgets/smooth_error_card.dart';
 import 'package:smooth_app/helpers/analytics_helper.dart';
 import 'package:smooth_app/pages/personalized_ranking_page.dart';
+import 'package:smooth_app/pages/product/common/loading_status.dart';
 import 'package:smooth_app/pages/product/common/product_list_item_simple.dart';
 import 'package:smooth_app/pages/product/common/product_query_page_helper.dart';
+import 'package:smooth_app/pages/product/common/search_app_bar_title.dart';
+import 'package:smooth_app/pages/product/common/search_empty_screen.dart';
+import 'package:smooth_app/pages/product/common/search_loading_screen.dart';
 import 'package:smooth_app/query/paged_product_query.dart';
 import 'package:smooth_app/widgets/ranking_floating_action_button.dart';
+import 'package:smooth_app/widgets/smooth_app_bar.dart';
 import 'package:smooth_app/widgets/smooth_scaffold.dart';
 
+/// A page that can be used like a screen, if [includeAppBar] is true.
+/// Otherwise, it can be embedded in another screen.
 class ProductQueryPage extends StatefulWidget {
   const ProductQueryPage({
     required this.productListSupplier,
     required this.name,
-    required this.editableAppBarTitle,
+    this.includeAppBar = true,
+    this.searchResult = true,
   });
 
   final ProductListSupplier productListSupplier;
   final String name;
-  final bool editableAppBarTitle;
+  final bool includeAppBar;
+  final bool searchResult;
 
   @override
   State<ProductQueryPage> createState() => _ProductQueryPageState();
@@ -44,19 +53,16 @@ class ProductQueryPage extends StatefulWidget {
 
 class _ProductQueryPageState extends State<ProductQueryPage>
     with TraceableClientMixin {
-  static const int _OVERSCROLL_TEMPLATE_COUNT = 1;
+  static const int _OVERSCROLL_TEMPLATE_COUNT = 3;
 
   bool _showBackToTopButton = false;
   late ScrollController _scrollController;
 
   late ProductQueryModel _model;
-  late final OpenFoodFactsCountry? _country;
+  late OpenFoodFactsCountry? _country;
 
   @override
-  String get traceTitle => 'search_page';
-
-  @override
-  String get traceName => 'Opened search_page';
+  String get actionName => 'Opened search_page';
 
   @override
   void initState() {
@@ -70,25 +76,33 @@ class _ProductQueryPageState extends State<ProductQueryPage>
         if (_scrollController.offset >= 400) {
           if (!_showBackToTopButton) {
             _showBackToTopButton = true;
-            setState(() {});
+            if (mounted) {
+              setState(() {});
+            }
           }
         } else if (_showBackToTopButton) {
           _showBackToTopButton = false;
-          setState(() {});
+          if (mounted) {
+            setState(() {});
+          }
         }
       });
   }
 
   @override
-  void dispose() {
-    _scrollController.dispose();
-    super.dispose();
+  void didUpdateWidget(ProductQueryPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.productListSupplier != widget.productListSupplier) {
+      _model = _getModel(widget.productListSupplier);
+      _country = widget.productListSupplier.productQuery.country;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final AppLocalizations appLocalizations = AppLocalizations.of(context);
-    final Size screenSize = MediaQuery.of(context).size;
+    final Size screenSize = MediaQuery.sizeOf(context);
     final ThemeData themeData = Theme.of(context);
 
     return ChangeNotifierProvider<ProductQueryModel>.value(
@@ -106,24 +120,21 @@ class _ProductQueryPageState extends State<ProductQueryPage>
             );
           case LoadingStatus.LOADING:
             if (_model.isEmpty()) {
-              return _EmptyScreen(
-                screenSize: screenSize,
-                name: widget.name,
-                emptiness: const CircularProgressIndicator.adaptive(),
+              return SearchLoadingScreen(
+                title: widget.name,
               );
             }
             break;
           case LoadingStatus.LOADED:
             if (_model.isEmpty()) {
               // TODO(monsieurtanuki): should be tracked as well, shouldn't it?
-              return _EmptyScreen(
-                screenSize: screenSize,
+              return SearchEmptyScreen(
                 name: widget.name,
+                includeAppBar: widget.includeAppBar,
                 emptiness: _getEmptyText(
                   themeData,
                   appLocalizations.no_product_found,
                 ),
-                actions: _getAppBarButtons(),
               );
             }
             AnalyticsHelper.trackSearch(
@@ -144,25 +155,34 @@ class _ProductQueryPageState extends State<ProductQueryPage>
     );
   }
 
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
   // TODO(monsieurtanuki): put that in a specific Widget class
   Widget _getNotEmptyScreen(
     final Size screenSize,
     final ThemeData themeData,
     final AppLocalizations appLocalizations,
-  ) =>
-      SmoothScaffold(
+  ) {
+    final int itemCount = _getItemCount();
+
+    return SmoothSharedAnimationController(
+      child: SmoothScaffold(
         floatingActionButton: Row(
-          mainAxisAlignment: _showBackToTopButton
-              ? MainAxisAlignment.spaceBetween
-              : MainAxisAlignment.center,
+          mainAxisAlignment: MainAxisAlignment.end,
           children: <Widget>[
-            RankingFloatingActionButton(
-              onPressed: () => Navigator.push<Widget>(
-                context,
-                MaterialPageRoute<Widget>(
-                  builder: (BuildContext context) => PersonalizedRankingPage(
-                    barcodes: _model.displayBarcodes,
-                    title: widget.name,
+            Expanded(
+              child: RankingFloatingActionButton(
+                onPressed: () =>
+                    Navigator.of(context, rootNavigator: true).push<Widget>(
+                  MaterialPageRoute<Widget>(
+                    builder: (BuildContext context) => PersonalizedRankingPage(
+                      barcodes: _model.displayBarcodes,
+                      title: widget.name,
+                    ),
                   ),
                 ),
               ),
@@ -179,15 +199,24 @@ class _ProductQueryPageState extends State<ProductQueryPage>
                     padding: const EdgeInsetsDirectional.only(
                       start: SMALL_SPACE,
                     ),
-                    child: FloatingActionButton(
-                      backgroundColor: themeData.colorScheme.secondary,
-                      onPressed: () {
-                        _scrollToTop();
-                      },
-                      tooltip: appLocalizations.go_back_to_top,
-                      child: Icon(
-                        Icons.arrow_upward,
-                        color: themeData.colorScheme.onSecondary,
+                    child: SizedBox(
+                      height: MINIMUM_TOUCH_SIZE,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          _scrollToTop();
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: themeData.colorScheme.secondary,
+                          foregroundColor: themeData.colorScheme.onSecondary,
+                          shape: const CircleBorder(),
+                          padding: EdgeInsets.zero,
+                        ),
+                        child: Center(
+                          child: Icon(
+                            Icons.arrow_upward,
+                            color: themeData.colorScheme.onSecondary,
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -196,21 +225,27 @@ class _ProductQueryPageState extends State<ProductQueryPage>
             ),
           ],
         ),
-        appBar: AppBar(
-          backgroundColor: themeData.scaffoldBackgroundColor,
-          elevation: 2,
-          automaticallyImplyLeading: false,
-          leading: const SmoothBackButton(),
-          title: _AppBarTitle(
-            name: widget.name,
-            editableAppBarTitle: widget.editableAppBarTitle,
-          ),
-          actions: _getAppBarButtons(),
-        ),
+        appBar: widget.includeAppBar
+            ? SmoothAppBar(
+                backgroundColor: themeData.scaffoldBackgroundColor,
+                elevation: 2,
+                automaticallyImplyLeading: false,
+                leading: const SmoothBackButton(),
+                title: SearchAppBarTitle(
+                  title: widget.searchResult
+                      ? widget.name
+                      : appLocalizations.product_search_same_category,
+                  editableAppBarTitle: widget.searchResult,
+                  multiLines: !widget.searchResult,
+                ),
+                subTitle: !widget.searchResult ? Text(widget.name) : null,
+              )
+            : null,
         body: RefreshIndicator(
           onRefresh: () async => _refreshList(),
-          child: ListView.builder(
+          child: ListView.separated(
             controller: _scrollController,
+            padding: widget.includeAppBar ? null : EdgeInsets.zero,
             // To allow refresh even when not the whole page is filled
             physics: const AlwaysScrollableScrollPhysics(),
             itemBuilder: (BuildContext context, int index) {
@@ -236,24 +271,40 @@ class _ProductQueryPageState extends State<ProductQueryPage>
                 final int overscrollIndex =
                     index - barcodesCount + 1 - _OVERSCROLL_TEMPLATE_COUNT;
 
-                if (overscrollIndex <= 0) {
-                  return const SmoothProductCardTemplate();
+                if (overscrollIndex < _OVERSCROLL_TEMPLATE_COUNT - 2) {
+                  return SmoothProductCardTemplate(
+                    message: appLocalizations.loading_dialog_default_title,
+                  );
+                } else {
+                  return const SafeArea(
+                    top: false,
+                    child: Padding(
+                      padding: EdgeInsetsDirectional.only(
+                        top: VERY_LARGE_SPACE,
+                        bottom: VERY_LARGE_SPACE + 60.0,
+                      ),
+                      child: Center(child: CircularProgressIndicator()),
+                    ),
+                  );
                 }
-                if (overscrollIndex == 1) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                return SizedBox(
-                  height: MediaQuery.of(context).size.height / 4,
-                );
               }
               return ProductListItemSimple(
                 barcode: _model.displayBarcodes[index],
               );
             },
-            itemCount: _getItemCount(),
+            itemCount: itemCount,
+            separatorBuilder: (BuildContext context, int index) {
+              if (index > 0 && index < itemCount - 1) {
+                return const Divider();
+              } else {
+                return EMPTY_WIDGET;
+              }
+            },
           ),
         ),
-      );
+      ),
+    );
+  }
 
   int _getItemCount() {
     //  1 additional widget, on top of ALL expected products
@@ -264,7 +315,7 @@ class _ProductQueryPageState extends State<ProductQueryPage>
     // but only while more are possible
     if (_model.supplier.partialProductList.totalSize >
         _model.displayBarcodes.length) {
-      return count + _OVERSCROLL_TEMPLATE_COUNT + 2;
+      return count + _OVERSCROLL_TEMPLATE_COUNT + 1;
     }
     return count;
   }
@@ -274,9 +325,9 @@ class _ProductQueryPageState extends State<ProductQueryPage>
     final ThemeData themeData,
     final String errorMessage,
   ) {
-    return _EmptyScreen(
-      screenSize: screenSize,
+    return SearchEmptyScreen(
       name: widget.name,
+      includeAppBar: false,
       emptiness: Padding(
         padding: const EdgeInsets.all(SMALL_SPACE),
         child: SmoothErrorCard(
@@ -310,25 +361,21 @@ class _ProductQueryPageState extends State<ProductQueryPage>
           ),
           if (worldQuery != null)
             _getLargeButtonWithIcon(
-              _getWorldAction(appLocalizations, worldQuery),
+              _getWorldAction(
+                appLocalizations,
+                worldQuery,
+                widget.includeAppBar,
+              ),
             ),
         ],
       ),
     );
   }
 
-  List<Widget> _getAppBarButtons() {
-    final AppLocalizations appLocalizations = AppLocalizations.of(context);
-    final PagedProductQuery pagedProductQuery = _model.supplier.productQuery;
-    final PagedProductQuery? worldQuery = pagedProductQuery.getWorldQuery();
-    return <Widget>[
-      if (worldQuery != null)
-        _getIconButton(_getWorldAction(appLocalizations, worldQuery)),
-    ];
-  }
-
   Widget _getTopMessagesCard() {
     final PagedProductQuery pagedProductQuery = _model.supplier.productQuery;
+    final PagedProductQuery? worldQuery = pagedProductQuery.getWorldQuery();
+
     return FutureBuilder<String?>(
       future: _getTranslatedCountry(),
       builder: (
@@ -362,7 +409,19 @@ class _ProductQueryPageState extends State<ProductQueryPage>
           child: SmoothCard(
             child: Padding(
               padding: const EdgeInsets.all(SMALL_SPACE),
-              child: Text(messages.join('\n')),
+              child: Row(
+                children: <Widget>[
+                  Expanded(child: Text(messages.join('\n'))),
+                  if (pagedProductQuery.getWorldQuery() != null)
+                    _getIconButton(
+                      _getWorldAction(
+                        appLocalizations,
+                        worldQuery!,
+                        widget.includeAppBar,
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         );
@@ -376,9 +435,9 @@ class _ProductQueryPageState extends State<ProductQueryPage>
     }
     final String locale = Localizations.localeOf(context).languageCode;
     final List<Country> localizedCountries =
-        await IsoCountries.iso_countries_for_locale(locale);
+        await IsoCountries.isoCountriesForLocale(locale);
     for (final Country country in localizedCountries) {
-      if (country.countryCode.toLowerCase() == _country!.offTag.toLowerCase()) {
+      if (country.countryCode.toLowerCase() == _country?.offTag.toLowerCase()) {
         return country.name;
       }
     }
@@ -388,7 +447,7 @@ class _ProductQueryPageState extends State<ProductQueryPage>
   Widget _getLargeButtonWithIcon(final _Action action) =>
       SmoothLargeButtonWithIcon(
         text: action.text,
-        icon: action.iconData,
+        leadingIcon: Icon(action.iconData),
         onPressed: action.onPressed,
       );
 
@@ -401,20 +460,25 @@ class _ProductQueryPageState extends State<ProductQueryPage>
   _Action _getWorldAction(
     final AppLocalizations appLocalizations,
     final PagedProductQuery worldQuery,
+    final bool editableAppBarTitle,
   ) =>
       _Action(
         text: appLocalizations.world_results_action,
         iconData: Icons.public,
-        onPressed: () async => ProductQueryPageHelper().openBestChoice(
+        onPressed: () async => ProductQueryPageHelper.openBestChoice(
           productQuery: worldQuery,
           localDatabase: context.read<LocalDatabase>(),
           name: widget.name,
           context: context,
+          editableAppBarTitle: editableAppBarTitle,
         ),
       );
 
-  void retryConnection() =>
+  void retryConnection() {
+    if (mounted) {
       setState(() => _model = _getModel(widget.productListSupplier));
+    }
+  }
 
   ProductQueryModel _getModel(final ProductListSupplier supplier) =>
       ProductQueryModel(supplier);
@@ -424,15 +488,19 @@ class _ProductQueryPageState extends State<ProductQueryPage>
     try {
       successfullyLoaded = await _model.loadFromTop();
     } catch (e) {
-      await LoadingDialog.error(
-        context: context,
-        title: _model.loadingError,
-      );
+      if (mounted) {
+        await LoadingDialog.error(
+          context: context,
+          title: _model.loadingError,
+        );
+      }
     } finally {
       if (successfullyLoaded) {
         _scrollToTop(instant: true);
       }
-      setState(() {});
+      if (mounted) {
+        setState(() {});
+      }
     }
   }
 
@@ -460,78 +528,14 @@ class _ProductQueryPageState extends State<ProductQueryPage>
     try {
       final bool result = await _model.loadNextPage();
       if (result) {
-        setState(() {});
+        if (mounted) {
+          setState(() {});
+        }
       }
     } catch (e) {
       //
     }
     _loadingNext = false;
-  }
-}
-
-class _EmptyScreen extends StatelessWidget {
-  const _EmptyScreen({
-    required this.screenSize,
-    required this.name,
-    required this.emptiness,
-    this.actions,
-    Key? key,
-  }) : super(key: key);
-
-  final Size screenSize;
-  final String name;
-  final Widget emptiness;
-  final List<Widget>? actions;
-
-  @override
-  Widget build(BuildContext context) {
-    return SmoothScaffold(
-      appBar: AppBar(
-        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-        leading: const SmoothBackButton(),
-        title: _AppBarTitle(
-          name: name,
-          editableAppBarTitle: false,
-        ),
-        actions: actions,
-      ),
-      body: Center(child: emptiness),
-    );
-  }
-}
-
-class _AppBarTitle extends StatelessWidget {
-  const _AppBarTitle({
-    required this.name,
-    required this.editableAppBarTitle,
-    Key? key,
-  }) : super(key: key);
-
-  final String name;
-  final bool editableAppBarTitle;
-
-  @override
-  Widget build(BuildContext context) {
-    final Widget child = AutoSizeText(
-      name,
-      maxLines: 2,
-    );
-
-    if (editableAppBarTitle) {
-      final AppLocalizations appLocalizations = AppLocalizations.of(context);
-
-      return GestureDetector(
-        onTap: () {
-          Navigator.of(context).pop(ProductQueryPageResult.editProductQuery);
-        },
-        child: Tooltip(
-          message: appLocalizations.tap_to_edit_search,
-          child: child,
-        ),
-      );
-    } else {
-      return child;
-    }
   }
 }
 
@@ -546,9 +550,4 @@ class _Action {
   final IconData iconData;
   final String text;
   final VoidCallback onPressed;
-}
-
-enum ProductQueryPageResult {
-  editProductQuery,
-  unknown,
 }

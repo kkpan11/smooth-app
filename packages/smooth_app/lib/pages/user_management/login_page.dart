@@ -4,8 +4,9 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:matomo_tracker/matomo_tracker.dart';
 import 'package:openfoodfacts/openfoodfacts.dart';
 import 'package:provider/provider.dart';
+import 'package:smooth_app/data_models/login_result.dart';
+import 'package:smooth_app/data_models/preferences/user_preferences.dart';
 import 'package:smooth_app/data_models/user_management_provider.dart';
-import 'package:smooth_app/data_models/user_preferences.dart';
 import 'package:smooth_app/generic_lib/design_constants.dart';
 import 'package:smooth_app/generic_lib/dialogs/smooth_alert_dialog.dart';
 import 'package:smooth_app/generic_lib/widgets/smooth_card.dart';
@@ -29,7 +30,7 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> with TraceableClientMixin {
   bool _runningQuery = false;
-  bool _wrongCredentials = false;
+  LoginResult? _loginResult;
 
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
@@ -46,41 +47,34 @@ class _LoginPageState extends State<LoginPage> with TraceableClientMixin {
 
     setState(() {
       _runningQuery = true;
-      _wrongCredentials = false;
+      _loginResult = null;
     });
 
-    final bool login = await userManagementProvider.login(
+    _loginResult = await userManagementProvider.login(
       User(
         userId: userIdController.text,
         password: passwordController.text,
       ),
     );
-
-    if (login) {
-      AnalyticsHelper.trackEvent(AnalyticsEvent.loginAction);
-      if (!mounted) {
-        return;
-      }
-
-      await showInAppReviewIfNecessary(context);
-
-      if (!mounted) {
-        return;
-      }
-      Navigator.pop(context);
-    } else {
-      setState(() {
-        _runningQuery = false;
-        _wrongCredentials = true;
-      });
+    if (!context.mounted) {
+      return;
     }
+    setState(() => _runningQuery = false);
+
+    if (_loginResult!.type != LoginResultType.successful) {
+      return;
+    }
+
+    AnalyticsHelper.trackEvent(AnalyticsEvent.loginAction);
+    await _showInAppReviewIfNecessary(context);
+    if (!context.mounted) {
+      return;
+    }
+    Navigator.pop(context);
   }
 
   @override
-  String get traceTitle => 'login_page';
-
-  @override
-  String get traceName => 'Opened login_page';
+  String get actionName => 'Opened login_page';
 
   @override
   void dispose() {
@@ -93,7 +87,7 @@ class _LoginPageState extends State<LoginPage> with TraceableClientMixin {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final AppLocalizations appLocalizations = AppLocalizations.of(context);
-    final Size size = MediaQuery.of(context).size;
+    final Size size = MediaQuery.sizeOf(context);
 
     return SmoothScaffold(
       statusBarBackgroundColor: SmoothScaffold.semiTranslucentStatusBar,
@@ -113,9 +107,9 @@ class _LoginPageState extends State<LoginPage> with TraceableClientMixin {
             child: Container(
               alignment: Alignment.topCenter,
               width: double.infinity,
-              padding: EdgeInsets.only(
-                left: size.width * 0.15,
-                right: size.width * 0.15,
+              padding: EdgeInsetsDirectional.only(
+                start: size.width * 0.15,
+                end: size.width * 0.15,
                 bottom: size.width * 0.05,
               ),
               child: AutofillGroup(
@@ -127,7 +121,7 @@ class _LoginPageState extends State<LoginPage> with TraceableClientMixin {
                     children: <Widget>[
                       SvgPicture.asset(
                         'assets/preferences/login.svg',
-                        height: MediaQuery.of(context).size.height * .15,
+                        height: MediaQuery.sizeOf(context).height * .15,
                         package: AppHelper.APP_PACKAGE,
                       ),
                       Text(
@@ -143,26 +137,29 @@ class _LoginPageState extends State<LoginPage> with TraceableClientMixin {
                         height: LARGE_SPACE * 3,
                       ),
 
-                      if (_wrongCredentials) ...<Widget>[
-                        SmoothCard(
-                          padding: const EdgeInsets.all(10.0),
-                          color: const Color(0xFFFF4446),
-                          child: Text(
-                            appLocalizations.incorrect_credentials,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              fontSize: 18.0,
-                              color: const Color(0xFF000000),
+                      if (_loginResult != null &&
+                          _loginResult!.type != LoginResultType.successful)
+                        Padding(
+                          padding: const EdgeInsets.only(
+                            bottom: BALANCED_SPACE + LARGE_SPACE * 2,
+                          ),
+                          child: SmoothCard(
+                            padding: const EdgeInsets.all(BALANCED_SPACE),
+                            color: const Color(0xFFEB0004),
+                            child: Text(
+                              _loginResult!.getErrorMessage(appLocalizations),
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                fontSize: 18.0,
+                                color: const Color(0xFF000000),
+                              ),
+                              textAlign: TextAlign.center,
                             ),
                           ),
                         ),
-                        const SizedBox(
-                          height: LARGE_SPACE * 2,
-                        ),
-                      ],
                       //Login
                       SmoothTextFormField(
                         type: TextFieldTypes.PLAIN_TEXT,
-                        textInputType: TextInputType.name,
+                        textInputType: TextInputType.emailAddress,
                         controller: userIdController,
                         hintText: appLocalizations.username_or_email,
                         prefixIcon: const Icon(Icons.person),
@@ -192,6 +189,7 @@ class _LoginPageState extends State<LoginPage> with TraceableClientMixin {
                         textInputType: TextInputType.text,
                         controller: passwordController,
                         hintText: appLocalizations.password,
+                        maxLines: 1,
                         prefixIcon: const Icon(Icons.vpn_key),
                         enabled: !_runningQuery,
                         textInputAction: TextInputAction.send,
@@ -224,12 +222,12 @@ class _LoginPageState extends State<LoginPage> with TraceableClientMixin {
                         ElevatedButton(
                           onPressed: () => _login(context),
                           style: ButtonStyle(
-                            minimumSize: MaterialStateProperty.all<Size>(
+                            minimumSize: WidgetStateProperty.all<Size>(
                               Size(size.width * 0.5,
                                   theme.buttonTheme.height + 10),
                             ),
-                            shape: MaterialStateProperty.all<
-                                RoundedRectangleBorder>(
+                            shape:
+                                WidgetStateProperty.all<RoundedRectangleBorder>(
                               const RoundedRectangleBorder(
                                 borderRadius: CIRCULAR_BORDER_RADIUS,
                               ),
@@ -252,28 +250,26 @@ class _LoginPageState extends State<LoginPage> with TraceableClientMixin {
                       //Forgot password
                       TextButton(
                         style: ButtonStyle(
-                          padding: MaterialStateProperty.all<EdgeInsets>(
+                          padding: WidgetStateProperty.all<EdgeInsets>(
                             const EdgeInsets.symmetric(
-                              vertical: 10.0,
+                              vertical: BALANCED_SPACE,
                               horizontal: VERY_LARGE_SPACE,
                             ),
                           ),
                           shape:
-                              MaterialStateProperty.all<RoundedRectangleBorder>(
+                              WidgetStateProperty.all<RoundedRectangleBorder>(
                             const RoundedRectangleBorder(
                               borderRadius: CIRCULAR_BORDER_RADIUS,
                             ),
                           ),
                         ),
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute<void>(
-                              builder: (BuildContext context) =>
-                                  const ForgotPasswordPage(),
-                            ),
-                          );
-                        },
+                        onPressed: () async => Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                            builder: (BuildContext context) =>
+                                const ForgotPasswordPage(),
+                          ),
+                        ),
                         child: Text(
                           appLocalizations.forgot_password,
                           style: theme.textTheme.bodyMedium?.copyWith(
@@ -302,22 +298,22 @@ class _LoginPageState extends State<LoginPage> with TraceableClientMixin {
                               ),
                             );
                             if (registered == true) {
-                              if (!mounted) {
+                              if (!context.mounted) {
                                 return;
                               }
                               Navigator.of(context).pop();
                             }
                           },
                           style: ButtonStyle(
-                            side: MaterialStateProperty.all<BorderSide>(
+                            side: WidgetStateProperty.all<BorderSide>(
                               BorderSide(
                                   color: theme.colorScheme.primary, width: 2.0),
                             ),
-                            minimumSize: MaterialStateProperty.all<Size>(
+                            minimumSize: WidgetStateProperty.all<Size>(
                               Size(size.width * 0.5, theme.buttonTheme.height),
                             ),
-                            shape: MaterialStateProperty.all<
-                                RoundedRectangleBorder>(
+                            shape:
+                                WidgetStateProperty.all<RoundedRectangleBorder>(
                               const RoundedRectangleBorder(
                                 borderRadius: CIRCULAR_BORDER_RADIUS,
                               ),
@@ -348,86 +344,81 @@ class _LoginPageState extends State<LoginPage> with TraceableClientMixin {
     );
   }
 
-  Future<void> showInAppReviewIfNecessary(BuildContext context) async {
+  Future<void> _showInAppReviewIfNecessary(BuildContext context) async {
     final UserPreferences preferences = context.read<UserPreferences>();
-    if (!preferences.inAppReviewAlreadyAsked) {
-      assert(mounted);
-      final bool? enjoyingApp = await showDialog<bool>(
+    if (preferences.inAppReviewAlreadyAsked) {
+      return;
+    }
+
+    final AppLocalizations appLocalizations = AppLocalizations.of(context);
+
+    final bool? enjoyingApp = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) => SmoothAlertDialog(
+        title: appLocalizations.app_rating_dialog_title_enjoying_app,
+        body: const SizedBox.shrink(),
+        close: true,
+        actionsAxis: Axis.vertical,
+        positiveAction: SmoothActionButton(
+          text: appLocalizations.tagline_app_review_button_positive,
+          onPressed: () => Navigator.of(context).pop(true),
+        ),
+        negativeAction: SmoothActionButton(
+          text: appLocalizations.tagline_app_review_button_negative,
+          onPressed: () => Navigator.of(context).pop(false),
+        ),
+        neutralAction: SmoothActionButton(
+          text: appLocalizations.tagline_app_review_button_later,
+          onPressed: () => Navigator.of(context).pop(null),
+        ),
+      ),
+    );
+    if (enjoyingApp == null) {
+      return;
+    }
+    if (!context.mounted) {
+      return;
+    }
+    if (!enjoyingApp) {
+      await showDialog<void>(
         context: context,
-        builder: (BuildContext context) {
-          final AppLocalizations appLocalizations =
-              AppLocalizations.of(context);
-
-          return SmoothAlertDialog(
-            body: Text(appLocalizations.app_rating_dialog_title_enjoying_app),
-            positiveAction: SmoothActionButton(
-              text: appLocalizations
-                  .app_rating_dialog_title_enjoying_positive_actions,
-              onPressed: () => Navigator.of(context).pop(true),
-            ),
-            negativeAction: SmoothActionButton(
-              text: appLocalizations.not_really,
-              onPressed: () => Navigator.of(context).pop(false),
-            ),
-          );
-        },
+        builder: (BuildContext context) => SmoothAlertDialog(
+          body: Text(appLocalizations.app_rating_dialog_title_not_enjoying_app),
+          positiveAction: SmoothActionButton(
+            text: appLocalizations.okay,
+            onPressed: () async {
+              final String formLink = UserFeedbackHelper.getFeedbackFormLink();
+              LaunchUrlHelper.launchURL(formLink);
+              Navigator.of(context).pop();
+            },
+          ),
+          negativeAction: SmoothActionButton(
+            text: appLocalizations.not_really,
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+        ),
       );
-      if (enjoyingApp != null && !enjoyingApp) {
-        // ignore: use_build_context_synchronously
-        await showDialog<bool>(
-          context: context,
-          builder: (BuildContext context) {
-            final AppLocalizations appLocalizations =
-                AppLocalizations.of(context);
+      return;
+    }
 
-            return SmoothAlertDialog(
-              body: Text(
-                  appLocalizations.app_rating_dialog_title_not_enjoying_app),
-              positiveAction: SmoothActionButton(
-                text: appLocalizations.okay,
-                onPressed: () async {
-                  final String formLink =
-                      UserFeedbackHelper.getFeedbackFormLink();
-                  LaunchUrlHelper.launchURL(formLink, false);
-                  Navigator.of(context).pop();
-                },
-              ),
-              negativeAction: SmoothActionButton(
-                text: appLocalizations.not_really,
-                onPressed: () => Navigator.of(context).pop(),
-              ),
-            );
-          },
-        );
-      }
-      bool? userRatedApp;
-      if (enjoyingApp != null && enjoyingApp) {
-        // ignore: use_build_context_synchronously
-        userRatedApp = await showDialog<bool>(
-          context: context,
-          builder: (BuildContext context) {
-            final AppLocalizations appLocalizations =
-                AppLocalizations.of(context);
-
-            return SmoothAlertDialog(
-              body: Text(appLocalizations.app_rating_dialog_title),
-              positiveAction: SmoothActionButton(
-                text: appLocalizations.app_rating_dialog_positive_action,
-                onPressed: () async => Navigator.of(context).pop(
-                  await ApplicationStore.openAppReview(),
-                ),
-              ),
-              negativeAction: SmoothActionButton(
-                text: appLocalizations.ask_me_later_button_label,
-                onPressed: () => Navigator.of(context).pop(false),
-              ),
-            );
-          },
-        );
-      }
-      if (userRatedApp != null && userRatedApp) {
-        await preferences.markInAppReviewAsShown();
-      }
+    final bool? userRatedApp = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) => SmoothAlertDialog(
+        body: Text(appLocalizations.app_rating_dialog_title),
+        positiveAction: SmoothActionButton(
+          text: appLocalizations.app_rating_dialog_positive_action,
+          onPressed: () async => Navigator.of(context).pop(
+            await ApplicationStore.openAppReview(),
+          ),
+        ),
+        negativeAction: SmoothActionButton(
+          text: appLocalizations.ask_me_later_button_label,
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ),
+    );
+    if (userRatedApp == true) {
+      await preferences.markInAppReviewAsShown();
     }
   }
 }

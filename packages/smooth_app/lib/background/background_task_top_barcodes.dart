@@ -1,33 +1,32 @@
-import 'dart:convert';
-
+import 'package:flutter/painting.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:openfoodfacts/openfoodfacts.dart';
 import 'package:smooth_app/background/background_task.dart';
 import 'package:smooth_app/background/background_task_download_products.dart';
 import 'package:smooth_app/background/background_task_progressing.dart';
+import 'package:smooth_app/background/background_task_queue.dart';
 import 'package:smooth_app/background/operation_type.dart';
 import 'package:smooth_app/database/dao_work_barcode.dart';
 import 'package:smooth_app/database/local_database.dart';
 import 'package:smooth_app/query/product_query.dart';
+import 'package:smooth_app/query/search_products_manager.dart';
 
 /// Background progressing task about downloading top n barcodes.
 class BackgroundTaskTopBarcodes extends BackgroundTaskProgressing {
   BackgroundTaskTopBarcodes._({
     required super.processName,
     required super.uniqueId,
-    required super.languageCode,
-    required super.user,
-    required super.country,
     required super.stamp,
     required super.work,
     required super.pageSize,
     required super.totalSize,
+    required super.productType,
     required this.pageNumber,
   });
 
-  BackgroundTaskTopBarcodes.fromJson(Map<String, dynamic> json)
+  BackgroundTaskTopBarcodes.fromJson(super.json)
       : pageNumber = json[_jsonTagPageNumber] as int? ?? 1,
-        super.fromJson(json);
+        super.fromJson();
 
   final int pageNumber;
 
@@ -48,12 +47,14 @@ class BackgroundTaskTopBarcodes extends BackgroundTaskProgressing {
     required final int pageSize,
     required final int totalSize,
     required final int soFarSize,
+    required final ProductType productType,
     final int pageNumber = 1,
   }) async {
     final String uniqueId = await _operationType.getNewKey(
       localDatabase,
       totalSize: totalSize,
       soFarSize: soFarSize,
+      productType: productType,
     );
     final BackgroundTask task = _getNewTask(
       uniqueId,
@@ -61,12 +62,18 @@ class BackgroundTaskTopBarcodes extends BackgroundTaskProgressing {
       pageSize,
       totalSize,
       pageNumber,
+      productType,
     );
-    await task.addToManager(localDatabase);
+    await task.addToManager(
+      localDatabase,
+      queue: BackgroundTaskQueue.longHaul,
+    );
   }
 
   @override
-  String? getSnackBarMessage(final AppLocalizations appLocalizations) => null;
+  (String, AlignmentGeometry)? getFloatingMessage(
+          final AppLocalizations appLocalizations) =>
+      null;
 
   static BackgroundTask _getNewTask(
     final String uniqueId,
@@ -74,18 +81,17 @@ class BackgroundTaskTopBarcodes extends BackgroundTaskProgressing {
     final int pageSize,
     final int totalSize,
     final int pageNumber,
+    final ProductType productType,
   ) =>
       BackgroundTaskTopBarcodes._(
         processName: _operationType.processName,
         uniqueId: uniqueId,
-        languageCode: ProductQuery.getLanguage().offTag,
-        user: jsonEncode(ProductQuery.getUser().toJson()),
-        country: ProductQuery.getCountry()!.offTag,
         stamp: ';offlineBarcodes;$work',
         work: work,
         pageSize: pageSize,
         totalSize: totalSize,
         pageNumber: pageNumber,
+        productType: productType,
       );
 
   @override
@@ -96,8 +102,9 @@ class BackgroundTaskTopBarcodes extends BackgroundTaskProgressing {
 
   @override
   Future<void> execute(final LocalDatabase localDatabase) async {
-    final SearchResult searchResult = await OpenFoodAPIClient.searchProducts(
-      ProductQuery.getUser(),
+    final SearchResult searchResult =
+        await SearchProductsManager.searchProducts(
+      ProductQuery.getReadUser(),
       ProductSearchQueryConfiguration(
         fields: <ProductField>[ProductField.BARCODE],
         parametersList: <Parameter>[
@@ -109,6 +116,8 @@ class BackgroundTaskTopBarcodes extends BackgroundTaskProgressing {
         country: ProductQuery.getCountry(),
         version: ProductQuery.productQueryVersion,
       ),
+      uriHelper: uriProductHelper,
+      type: SearchProductsType.background,
     );
     if (searchResult.products == null || searchResult.count == null) {
       throw Exception('Cannot download top barcodes');
@@ -135,6 +144,7 @@ class BackgroundTaskTopBarcodes extends BackgroundTaskProgressing {
         totalSize: newTotalSize,
         soFarSize: soFarAfter,
         pageNumber: pageNumber + 1,
+        productType: productType,
       );
     } else {
       // we have all the barcodes; now we need to download the products.
@@ -145,6 +155,7 @@ class BackgroundTaskTopBarcodes extends BackgroundTaskProgressing {
         totalSize: soFarAfter,
         soFarSize: 0,
         downloadFlag: BackgroundTaskDownloadProducts.flagMaskExcludeKP,
+        productType: productType,
       );
     }
   }

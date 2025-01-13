@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:audioplayers/audioplayers.dart';
@@ -7,15 +6,17 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:smooth_app/data_models/continuous_scan_model.dart';
-import 'package:smooth_app/data_models/user_preferences.dart';
+import 'package:smooth_app/data_models/preferences/user_preferences.dart';
 import 'package:smooth_app/generic_lib/design_constants.dart';
 import 'package:smooth_app/generic_lib/dialogs/smooth_alert_dialog.dart';
 import 'package:smooth_app/generic_lib/widgets/smooth_card.dart';
-import 'package:smooth_app/helpers/app_helper.dart';
+import 'package:smooth_app/helpers/camera_helper.dart';
 import 'package:smooth_app/helpers/haptic_feedback_helper.dart';
 import 'package:smooth_app/helpers/permission_helper.dart';
 import 'package:smooth_app/pages/scan/camera_scan_page.dart';
-import 'package:smooth_app/widgets/smooth_product_carousel.dart';
+import 'package:smooth_app/pages/scan/carousel/scan_carousel.dart';
+import 'package:smooth_app/themes/smooth_theme_colors.dart';
+import 'package:smooth_app/themes/theme_provider.dart';
 import 'package:smooth_app/widgets/smooth_scaffold.dart';
 
 class ScanPage extends StatefulWidget {
@@ -32,10 +33,9 @@ class _ScanPageState extends State<ScanPage> {
   AudioPlayer? _musicPlayer;
 
   late UserPreferences _userPreferences;
-  ContinuousScanModel? _model;
 
   /// Percentage of the bottom part of the screen that hosts the carousel.
-  static const int _carouselHeightPct = 55;
+  static const int _carouselHeightPct = 57;
 
   @override
   void didChangeDependencies() {
@@ -44,36 +44,27 @@ class _ScanPageState extends State<ScanPage> {
     if (mounted) {
       _userPreferences = context.watch<UserPreferences>();
     }
-
-    _updateModel();
-  }
-
-  Future<void> _updateModel() async {
-    if (_model == null) {
-      _model = context.read<ContinuousScanModel>();
-    } else {
-      await _model!.refresh();
-    }
-    setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_model == null) {
+    if (context.watch<ContinuousScanModel?>() == null) {
       return const Center(child: CircularProgressIndicator.adaptive());
     }
 
     final AppLocalizations appLocalizations = AppLocalizations.of(context);
+    final SmoothColorsThemeExtension themeExtension =
+        Theme.of(context).extension<SmoothColorsThemeExtension>()!;
     final TextDirection direction = Directionality.of(context);
+    final bool hasACamera = CameraHelper.hasACamera;
 
     return SmoothScaffold(
-      brightness:
-          Theme.of(context).brightness == Brightness.light && Platform.isIOS
-              ? Brightness.dark
-              : null,
-      body: SafeArea(
-        child: Column(
-          children: <Widget>[
+      brightness: Brightness.light,
+      backgroundColor:
+          context.lightTheme() ? themeExtension.primaryLight : null,
+      body: Column(
+        children: <Widget>[
+          if (hasACamera)
             Expanded(
               flex: 100 - _carouselHeightPct,
               child: Consumer<PermissionListener>(
@@ -94,38 +85,56 @@ class _ScanPageState extends State<ScanPage> {
                 },
               ),
             ),
-            Expanded(
-              flex: _carouselHeightPct,
-              child: Padding(
-                padding: const EdgeInsetsDirectional.only(bottom: 10),
-                child: SmoothProductCarousel(
-                  containSearchCard: true,
-                  onPageChangedTo: (int page, String? barcode) async {
-                    if (barcode == null) {
-                      // We only notify for new products
-                      return;
-                    }
+          Expanded(
+            flex: _carouselHeightPct,
+            child: Padding(
+              padding: const EdgeInsetsDirectional.only(
+                bottom: BALANCED_SPACE,
+              ),
+              child: ScanPageCarousel(
+                onPageChangedTo: (int page, String? barcode) async {
+                  if (barcode == null) {
+                    // We only notify for new products
+                    return;
+                  }
 
-                    // Both are Future methods, but it doesn't matter to wait here
-                    SmoothHapticFeedback.lightNotification();
+                  // Both are Future methods, but it doesn't matter to wait here
+                  SmoothHapticFeedback.lightNotification();
 
-                    if (_userPreferences.playCameraSound) {
-                      await _initSoundManagerIfNecessary();
-                      await _musicPlayer!.stop();
-                      await _musicPlayer!.resume();
-                    }
-
-                    SemanticsService.announce(
-                      appLocalizations.scan_announce_new_barcode(barcode),
-                      direction,
-                      assertiveness: Assertiveness.assertive,
+                  if (_userPreferences.playCameraSound) {
+                    await _initSoundManagerIfNecessary();
+                    await _musicPlayer!.stop();
+                    await _musicPlayer!.play(
+                      AssetSource('audio/beep.wav'),
+                      volume: 0.5,
+                      ctx: AudioContext(
+                        android: const AudioContextAndroid(
+                          isSpeakerphoneOn: false,
+                          stayAwake: false,
+                          contentType: AndroidContentType.sonification,
+                          usageType: AndroidUsageType.notification,
+                          audioFocus: AndroidAudioFocus.gainTransientMayDuck,
+                        ),
+                        iOS: AudioContextIOS(
+                          category: AVAudioSessionCategory.soloAmbient,
+                          options: const <AVAudioSessionOptions>{
+                            AVAudioSessionOptions.mixWithOthers,
+                          },
+                        ),
+                      ),
                     );
-                  },
-                ),
+                  }
+
+                  SemanticsService.announce(
+                    appLocalizations.scan_announce_new_barcode(barcode),
+                    direction,
+                    assertiveness: Assertiveness.assertive,
+                  );
+                },
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -138,27 +147,6 @@ class _ScanPageState extends State<ScanPage> {
     }
 
     _musicPlayer = AudioPlayer(playerId: '1');
-    _musicPlayer!.audioCache.prefix = AppHelper.defaultAssetPath;
-    await _musicPlayer!.setSourceAsset('audio/beep.ogg');
-    await _musicPlayer!.setPlayerMode(PlayerMode.lowLatency);
-    await _musicPlayer!.setAudioContext(
-      const AudioContext(
-        android: AudioContextAndroid(
-          isSpeakerphoneOn: false,
-          stayAwake: false,
-          contentType: AndroidContentType.sonification,
-          usageType: AndroidUsageType.notificationEvent,
-          audioFocus: AndroidAudioFocus.gainTransientExclusive,
-        ),
-        iOS: AudioContextIOS(
-          category: AVAudioSessionCategory.soloAmbient,
-          options: <AVAudioSessionOptions>[
-            AVAudioSessionOptions.mixWithOthers,
-            AVAudioSessionOptions.defaultToSpeaker,
-          ],
-        ),
-      ),
-    );
   }
 
   Future<void> _disposeSoundManager() async {
@@ -175,7 +163,7 @@ class _ScanPageState extends State<ScanPage> {
 }
 
 class _PermissionDeniedCard extends StatelessWidget {
-  const _PermissionDeniedCard({Key? key}) : super(key: key);
+  const _PermissionDeniedCard();
 
   @override
   Widget build(BuildContext context) {
@@ -187,21 +175,22 @@ class _PermissionDeniedCard extends StatelessWidget {
           return Container(
             alignment: Alignment.topCenter,
             constraints: BoxConstraints.tightForFinite(
-              width: constraints.maxWidth *
-                  SmoothProductCarousel.carouselViewPortFraction,
+              width: constraints.maxWidth,
               height: math.min(constraints.maxHeight * 0.9, 200),
             ),
-            padding: SmoothProductCarousel.carouselItemInternalPadding,
             child: SmoothCard(
               padding: const EdgeInsetsDirectional.only(
-                top: 10.0,
+                top: BALANCED_SPACE,
                 start: SMALL_SPACE,
                 end: SMALL_SPACE,
                 bottom: 5.0,
               ),
+              borderRadius: BorderRadius.zero,
+              margin: EdgeInsets.zero,
               child: Align(
                 alignment: Alignment.topCenter,
                 child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: <Widget>[
                     Text(
                       localizations.permission_photo_denied_title,
@@ -211,12 +200,18 @@ class _PermissionDeniedCard extends StatelessWidget {
                       ),
                       textAlign: TextAlign.center,
                     ),
+                    SmoothActionButtonsBar.single(
+                      action: SmoothActionButton(
+                        text: localizations.permission_photo_denied_button,
+                        onPressed: () => _askPermission(context),
+                      ),
+                    ),
                     Expanded(
                       child: SingleChildScrollView(
                         child: Padding(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 10.0,
-                            vertical: 10.0,
+                            horizontal: BALANCED_SPACE,
+                            vertical: BALANCED_SPACE,
                           ),
                           child: Text(
                             localizations.permission_photo_denied_message(
@@ -229,12 +224,6 @@ class _PermissionDeniedCard extends StatelessWidget {
                             ),
                           ),
                         ),
-                      ),
-                    ),
-                    SmoothActionButtonsBar.single(
-                      action: SmoothActionButton(
-                        text: localizations.permission_photo_denied_button,
-                        onPressed: () => _askPermission(context),
                       ),
                     ),
                   ],

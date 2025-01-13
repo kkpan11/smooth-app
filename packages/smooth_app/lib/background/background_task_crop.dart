@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -6,21 +5,20 @@ import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:openfoodfacts/openfoodfacts.dart';
 import 'package:provider/provider.dart';
 import 'package:smooth_app/background/background_task_barcode.dart';
+import 'package:smooth_app/background/background_task_queue.dart';
 import 'package:smooth_app/background/background_task_refresh_later.dart';
 import 'package:smooth_app/background/background_task_upload.dart';
 import 'package:smooth_app/background/operation_type.dart';
 import 'package:smooth_app/database/local_database.dart';
-import 'package:smooth_app/query/product_query.dart';
 
 /// Background task about product image crop from existing file.
 class BackgroundTaskCrop extends BackgroundTaskUpload {
-  const BackgroundTaskCrop._({
+  BackgroundTaskCrop._({
     required super.processName,
     required super.uniqueId,
     required super.barcode,
-    required super.languageCode,
-    required super.user,
-    required super.country,
+    required super.productType,
+    required super.language,
     required super.stamp,
     required super.imageField,
     required super.croppedPath,
@@ -32,9 +30,9 @@ class BackgroundTaskCrop extends BackgroundTaskUpload {
     required this.imageId,
   });
 
-  BackgroundTaskCrop.fromJson(Map<String, dynamic> json)
+  BackgroundTaskCrop.fromJson(super.json)
       : imageId = json[_jsonTagImageId] as int,
-        super.fromJson(json);
+        super.fromJson();
 
   static const String _jsonTagImageId = 'imageId';
 
@@ -52,6 +50,7 @@ class BackgroundTaskCrop extends BackgroundTaskUpload {
   /// Adds the background task about uploading a product image.
   static Future<void> addTask(
     final String barcode, {
+    required final ProductType? productType,
     required final OpenFoodFactsLanguage language,
     required final int imageId,
     required final ImageField imageField,
@@ -61,9 +60,9 @@ class BackgroundTaskCrop extends BackgroundTaskUpload {
     required final int y1,
     required final int x2,
     required final int y2,
-    required final State<StatefulWidget> widget,
+    required final BuildContext context,
   }) async {
-    final LocalDatabase localDatabase = widget.context.read<LocalDatabase>();
+    final LocalDatabase localDatabase = context.read<LocalDatabase>();
     final String uniqueId = await _operationType.getNewKey(
       localDatabase,
       barcode: barcode,
@@ -71,6 +70,7 @@ class BackgroundTaskCrop extends BackgroundTaskUpload {
     final BackgroundTaskBarcode task = _getNewTask(
       language,
       barcode,
+      productType ?? ProductType.food,
       imageId,
       imageField,
       croppedFile,
@@ -81,17 +81,29 @@ class BackgroundTaskCrop extends BackgroundTaskUpload {
       x2,
       y2,
     );
-    await task.addToManager(localDatabase, widget: widget);
+    if (!context.mounted) {
+      return;
+    }
+    await task.addToManager(
+      localDatabase,
+      context: context,
+      queue: BackgroundTaskQueue.fast,
+    );
   }
 
   @override
-  String? getSnackBarMessage(final AppLocalizations appLocalizations) =>
-      appLocalizations.product_task_background_schedule;
+  (String, AlignmentGeometry)? getFloatingMessage(
+          final AppLocalizations appLocalizations) =>
+      (
+        appLocalizations.product_task_background_schedule,
+        AlignmentDirectional.topCenter,
+      );
 
   /// Returns a new background task about cropping an existing image.
   static BackgroundTaskCrop _getNewTask(
     final OpenFoodFactsLanguage language,
     final String barcode,
+    final ProductType productType,
     final int imageId,
     final ImageField imageField,
     final File croppedFile,
@@ -105,6 +117,7 @@ class BackgroundTaskCrop extends BackgroundTaskUpload {
       BackgroundTaskCrop._(
         uniqueId: uniqueId,
         barcode: barcode,
+        productType: productType,
         processName: _operationType.processName,
         imageId: imageId,
         imageField: imageField.offTag,
@@ -114,9 +127,7 @@ class BackgroundTaskCrop extends BackgroundTaskUpload {
         cropY1: cropY1,
         cropX2: cropX2,
         cropY2: cropY2,
-        languageCode: language.code,
-        user: jsonEncode(ProductQuery.getUser().toJson()),
-        country: ProductQuery.getCountry()!.offTag,
+        language: language,
         stamp: BackgroundTaskUpload.getStamp(
           barcode,
           imageField.offTag,
@@ -124,22 +135,11 @@ class BackgroundTaskCrop extends BackgroundTaskUpload {
         ),
       );
 
-  @override
-  Future<void> preExecute(final LocalDatabase localDatabase) async {
-    await localDatabase.upToDate.addChange(
-      uniqueId,
-      Product(
-        barcode: barcode,
-        images: <ProductImage>[_getProductImage()],
-      ),
-    );
-    putTransientImage(localDatabase);
-  }
-
   /// Returns the actual crop parameters.
   ///
   /// cf. [UpToDateChanges._overwrite] regarding `images` field.
-  ProductImage _getProductImage() => ProductImage(
+  @override
+  ProductImage getProductImageChange() => ProductImage(
         field: ImageField.fromOffTag(imageField)!,
         language: getLanguage(),
         size: ImageSize.ORIGINAL,
@@ -159,7 +159,7 @@ class BackgroundTaskCrop extends BackgroundTaskUpload {
   ) async {
     await super.postExecute(localDatabase, success);
     try {
-      File(croppedPath).deleteSync();
+      (await BackgroundTaskUpload.getFile(croppedPath)).deleteSync();
     } catch (e) {
       // not likely, but let's not spoil the task for that either.
     }
@@ -168,6 +168,7 @@ class BackgroundTaskCrop extends BackgroundTaskUpload {
       await BackgroundTaskRefreshLater.addTask(
         barcode,
         localDatabase: localDatabase,
+        productType: productType,
       );
     }
   }
@@ -175,10 +176,10 @@ class BackgroundTaskCrop extends BackgroundTaskUpload {
   /// Uploads the product image.
   @override
   Future<void> upload() async {
-    final ProductImage productImage = _getProductImage();
+    final ProductImage productImage = getProductImageChange();
     final String? imageUrl = await OpenFoodAPIClient.setProductImageCrop(
       barcode: barcode,
-      imageField: productImage.field,
+      imageField: productImage.field!,
       language: getLanguage(),
       imgid: productImage.imgid!,
       angle: productImage.angle!,
@@ -187,6 +188,7 @@ class BackgroundTaskCrop extends BackgroundTaskUpload {
       x2: productImage.x2!,
       y2: productImage.y2!,
       user: getUser(),
+      uriHelper: uriProductHelper,
     );
     if (imageUrl == null) {
       throw Exception('Could not select picture');

@@ -5,11 +5,11 @@ import 'package:smooth_app/helpers/analytics_helper.dart';
 import 'package:smooth_app/pages/product/add_basic_details_page.dart';
 import 'package:smooth_app/pages/product/common/product_refresher.dart';
 import 'package:smooth_app/pages/product/edit_new_packagings.dart';
-import 'package:smooth_app/pages/product/edit_ocr_page.dart';
+import 'package:smooth_app/pages/product/edit_ocr/edit_ocr_page.dart';
+import 'package:smooth_app/pages/product/edit_ocr/ocr_helper.dart';
+import 'package:smooth_app/pages/product/edit_ocr/ocr_ingredients_helper.dart';
+import 'package:smooth_app/pages/product/edit_ocr/ocr_packaging_helper.dart';
 import 'package:smooth_app/pages/product/nutrition_page_loaded.dart';
-import 'package:smooth_app/pages/product/ocr_helper.dart';
-import 'package:smooth_app/pages/product/ocr_ingredients_helper.dart';
-import 'package:smooth_app/pages/product/ocr_packaging_helper.dart';
 import 'package:smooth_app/pages/product/simple_input_page.dart';
 import 'package:smooth_app/pages/product/simple_input_page_helpers.dart';
 
@@ -30,19 +30,6 @@ abstract class ProductFieldEditor {
     required final Product product,
     final bool isLoggedInMandatory = true,
   });
-
-  /// Returns true if no log-in required or if logged in
-  @protected
-  Future<bool> passedLoggedIn({
-    required final BuildContext context,
-    required final bool isLoggedInMandatory,
-  }) async {
-    if (!isLoggedInMandatory) {
-      return true;
-    }
-
-    return ProductRefresher().checkIfLoggedIn(context);
-  }
 }
 
 class ProductFieldSimpleEditor extends ProductFieldEditor {
@@ -63,19 +50,21 @@ class ProductFieldSimpleEditor extends ProductFieldEditor {
     required final Product product,
     final bool isLoggedInMandatory = true,
   }) async {
-    if (isLoggedInMandatory) {
-      // ignore: use_build_context_synchronously
-      if (!await ProductRefresher().checkIfLoggedIn(context)) {
-        return;
-      }
+    if (!await ProductRefresher().checkIfLoggedIn(
+      context,
+      isLoggedInMandatory: isLoggedInMandatory,
+    )) {
+      return;
     }
 
     AnalyticsHelper.trackProductEdit(
       helper.getAnalyticsEditEvent(),
-      product.barcode!,
+      product,
     );
 
-    // ignore: use_build_context_synchronously
+    if (!context.mounted) {
+      return;
+    }
     await Navigator.push<void>(
       context,
       MaterialPageRoute<void>(
@@ -83,7 +72,6 @@ class ProductFieldSimpleEditor extends ProductFieldEditor {
           helper: helper,
           product: product,
         ),
-        fullscreenDialog: true,
       ),
     );
   }
@@ -97,6 +85,7 @@ class ProductFieldDetailsEditor extends ProductFieldEditor {
   @override
   bool isPopulated(final Product product) =>
       _isProductFieldValid(product.productName) ||
+      (product.productNameInLanguages?.isNotEmpty == true) ||
       _isProductFieldValid(product.brands);
 
   @override
@@ -109,9 +98,8 @@ class ProductFieldDetailsEditor extends ProductFieldEditor {
     required final Product product,
     final bool isLoggedInMandatory = true,
   }) async {
-    // ignore: use_build_context_synchronously
-    if (!await passedLoggedIn(
-      context: context,
+    if (!await ProductRefresher().checkIfLoggedIn(
+      context,
       isLoggedInMandatory: isLoggedInMandatory,
     )) {
       return;
@@ -119,10 +107,12 @@ class ProductFieldDetailsEditor extends ProductFieldEditor {
 
     AnalyticsHelper.trackProductEdit(
       AnalyticsEditEvents.basicDetails,
-      product.barcode!,
+      product,
     );
 
-    // ignore: use_build_context_synchronously
+    if (!context.mounted) {
+      return;
+    }
     await Navigator.push<void>(
       context,
       MaterialPageRoute<void>(
@@ -150,9 +140,8 @@ class ProductFieldPackagingEditor extends ProductFieldEditor {
     required final Product product,
     final bool isLoggedInMandatory = true,
   }) async {
-    // ignore: use_build_context_synchronously
-    if (!await passedLoggedIn(
-      context: context,
+    if (!await ProductRefresher().checkIfLoggedIn(
+      context,
       isLoggedInMandatory: isLoggedInMandatory,
     )) {
       return;
@@ -160,17 +149,19 @@ class ProductFieldPackagingEditor extends ProductFieldEditor {
 
     AnalyticsHelper.trackProductEdit(
       AnalyticsEditEvents.packagingComponents,
-      product.barcode!,
+      product,
     );
 
-    // ignore: use_build_context_synchronously
+    if (!context.mounted) {
+      return;
+    }
     await Navigator.push<void>(
       context,
       MaterialPageRoute<void>(
         builder: (BuildContext context) => EditNewPackagings(
           product: product,
+          isLoggedInMandatory: isLoggedInMandatory,
         ),
-        fullscreenDialog: true,
       ),
     );
   }
@@ -213,9 +204,8 @@ abstract class ProductFieldOcrEditor extends ProductFieldEditor {
     required final Product product,
     final bool isLoggedInMandatory = true,
   }) async {
-    // ignore: use_build_context_synchronously
-    if (!await passedLoggedIn(
-      context: context,
+    if (!await ProductRefresher().checkIfLoggedIn(
+      context,
       isLoggedInMandatory: isLoggedInMandatory,
     )) {
       return;
@@ -223,10 +213,12 @@ abstract class ProductFieldOcrEditor extends ProductFieldEditor {
 
     AnalyticsHelper.trackProductEdit(
       helper.getEditEventAnalyticsTag(),
-      product.barcode!,
+      product,
     );
 
-    // ignore: use_build_context_synchronously
+    if (!context.mounted) {
+      return;
+    }
     await Navigator.push<void>(
       context,
       MaterialPageRoute<void>(
@@ -235,7 +227,6 @@ abstract class ProductFieldOcrEditor extends ProductFieldEditor {
           helper: helper,
           isLoggedInMandatory: isLoggedInMandatory,
         ),
-        fullscreenDialog: true,
       ),
     );
   }

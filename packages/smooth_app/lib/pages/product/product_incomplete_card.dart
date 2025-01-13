@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:openfoodfacts/openfoodfacts.dart';
 import 'package:smooth_app/generic_lib/design_constants.dart';
-import 'package:smooth_app/pages/product/add_new_product_page.dart';
+import 'package:smooth_app/helpers/analytics_helper.dart';
+import 'package:smooth_app/pages/product/add_new_product/add_new_product_page.dart';
 import 'package:smooth_app/pages/product/product_field_editor.dart';
+import 'package:smooth_app/pages/product/product_type_extensions.dart';
 import 'package:smooth_app/pages/product/simple_input_page_helpers.dart';
 
 /// "Incomplete product!" card to be displayed in product summary, if relevant.
@@ -20,6 +22,28 @@ class ProductIncompleteCard extends StatelessWidget {
   final bool isLoggedInMandatory;
 
   static bool isProductIncomplete(final Product product) {
+    if (product.productType != null &&
+        product.productType != ProductType.food) {
+      return false;
+    }
+    bool checkScores = true;
+    if (_isNutriscoreNotApplicable(product)) {
+      AnalyticsHelper.trackProductEvent(
+        AnalyticsEvent.notShowFastTrackProductEditCardNutriscore,
+        product: product,
+      );
+      checkScores = false;
+    }
+    if (_isEnvironmentalScoreNotApplicable(product)) {
+      AnalyticsHelper.trackProductEvent(
+        AnalyticsEvent.notShowFastTrackProductEditCardEnvironmentalScore,
+        product: product,
+      );
+      checkScores = false;
+    }
+    if (!checkScores) {
+      return false;
+    }
     final List<ProductFieldEditor> editors = <ProductFieldEditor>[
       ProductFieldSimpleEditor(SimpleInputPageCategoryHelper()),
       ProductFieldNutritionEditor(),
@@ -32,6 +56,34 @@ class ProductIncompleteCard extends StatelessWidget {
       }
     }
     return false;
+  }
+
+  static bool _isNutriscoreNotApplicable(final Product product) =>
+      _isScoreNotApplicable(product, 'nutriscore');
+
+  static bool _isEnvironmentalScoreNotApplicable(final Product product) =>
+      _isScoreNotApplicable(product, 'ecoscore');
+
+  static bool _isScoreNotApplicable(final Product product, final String tag) =>
+      _getAttribute(product, tag)?.iconUrl ==
+      'https://static.openfoodfacts.org/images/attributes/dist/$tag-not-applicable.svg';
+
+  // TODO(monsieurtanuki): move to off-dart (or find it there)
+  static Attribute? _getAttribute(final Product product, final String id) {
+    if (product.attributeGroups == null) {
+      return null;
+    }
+    for (final AttributeGroup attributeGroup in product.attributeGroups!) {
+      if (attributeGroup.attributes == null) {
+        continue;
+      }
+      for (final Attribute attribute in attributeGroup.attributes!) {
+        if (attribute.id == id) {
+          return attribute;
+        }
+      }
+    }
+    return null;
   }
 
   @override
@@ -48,14 +100,18 @@ class ProductIncompleteCard extends StatelessWidget {
       child: ElevatedButton.icon(
         label: Padding(
           padding: const EdgeInsets.symmetric(vertical: SMALL_SPACE),
-          child: Text(appLocalizations.hey_incomplete_product_message),
+          child: Text(
+            (product.productType ?? ProductType.food).getRoadToScoreLabel(
+              appLocalizations,
+            ),
+          ),
         ),
         icon: const Icon(
           Icons.bolt,
           color: Colors.amber,
         ),
-        onPressed: () async => Navigator.push<void>(
-          context,
+        onPressed: () async =>
+            Navigator.of(context, rootNavigator: true).push<void>(
           MaterialPageRoute<void>(
             builder: (BuildContext context) => AddNewProductPage.fromProduct(
               product,
@@ -64,13 +120,13 @@ class ProductIncompleteCard extends StatelessWidget {
           ),
         ),
         style: ButtonStyle(
-          backgroundColor: MaterialStateProperty.all<Color>(
+          backgroundColor: WidgetStateProperty.all<Color>(
             colorScheme.primary,
           ),
-          foregroundColor: MaterialStateProperty.all<Color>(
+          foregroundColor: WidgetStateProperty.all<Color>(
             colorScheme.onPrimary,
           ),
-          shape: MaterialStateProperty.all<RoundedRectangleBorder>(
+          shape: WidgetStateProperty.all<RoundedRectangleBorder>(
             const RoundedRectangleBorder(borderRadius: ANGULAR_BORDER_RADIUS),
           ),
         ),

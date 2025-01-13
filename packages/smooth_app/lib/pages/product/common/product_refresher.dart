@@ -1,21 +1,31 @@
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:dart_ping/dart_ping.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:flutter_svg/svg.dart';
 import 'package:openfoodfacts/openfoodfacts.dart';
 import 'package:provider/provider.dart';
+import 'package:smooth_app/data_models/fetched_product.dart';
 import 'package:smooth_app/database/dao_product.dart';
 import 'package:smooth_app/database/local_database.dart';
 import 'package:smooth_app/generic_lib/dialogs/smooth_alert_dialog.dart';
-import 'package:smooth_app/generic_lib/duration_constants.dart';
 import 'package:smooth_app/generic_lib/loading_dialog.dart';
+import 'package:smooth_app/generic_lib/widgets/smooth_snackbar.dart';
 import 'package:smooth_app/pages/user_management/login_page.dart';
 import 'package:smooth_app/query/product_query.dart';
+import 'package:smooth_app/query/search_products_manager.dart';
 import 'package:smooth_app/services/smooth_services.dart';
 
 /// Refreshes a product on the BE then on the local database.
 class ProductRefresher {
   /// Checks if the user is logged in and opens a "please log in" dialog if not.
-  Future<bool> checkIfLoggedIn(final BuildContext context) async {
+  Future<bool> checkIfLoggedIn(
+    final BuildContext context, {
+    required bool isLoggedInMandatory,
+  }) async {
+    if (!isLoggedInMandatory) {
+      return true;
+    }
     if (ProductQuery.isLoggedIn()) {
       return true;
     }
@@ -28,7 +38,7 @@ class ProductRefresher {
             children: <Widget>[
               SvgPicture.asset(
                 'assets/onboarding/globe.svg',
-                height: MediaQuery.of(context).size.height * .5,
+                height: MediaQuery.sizeOf(context).height * .5,
               ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 25),
@@ -65,23 +75,25 @@ class ProductRefresher {
   /// Returns the standard configuration for barcode product query.
   ProductQueryConfiguration getBarcodeQueryConfiguration(
     final String barcode,
+    final OpenFoodFactsLanguage language,
   ) =>
       ProductQueryConfiguration(
         barcode,
         fields: ProductQuery.fields,
-        language: ProductQuery.getLanguage(),
+        language: language,
         country: ProductQuery.getCountry(),
         version: ProductQuery.productQueryVersion,
+        productTypeFilter: ProductTypeFilter.all,
       );
 
   /// Returns the standard configuration for several barcodes product query.
   ProductSearchQueryConfiguration getBarcodeListQueryConfiguration(
-    final List<String> barcodes, {
-    final List<ProductField>? fields,
-  }) =>
+    final List<String> barcodes,
+    final OpenFoodFactsLanguage language,
+  ) =>
       ProductSearchQueryConfiguration(
-        fields: fields ?? ProductQuery.fields,
-        language: ProductQuery.getLanguage(),
+        fields: ProductQuery.fields,
+        language: language,
         country: ProductQuery.getCountry(),
         parametersList: <Parameter>[
           BarcodeParameter.list(barcodes),
@@ -90,43 +102,15 @@ class ProductRefresher {
         version: ProductQuery.productQueryVersion,
       );
 
-  /// Fetches the product from the server and refreshes the local database.
-  ///
-  /// Silent version.
-  Future<Product?> silentFetchAndRefresh({
-    required final String barcode,
-    required final LocalDatabase localDatabase,
-  }) async {
-    final _MetaProductRefresher meta =
-        await _fetchAndRefresh(localDatabase, barcode);
-    return meta.product;
-  }
-
   /// Fetches the products from the server and refreshes the local database.
   ///
   /// Silent version.
   Future<void> silentFetchAndRefreshList({
     required final List<String> barcodes,
     required final LocalDatabase localDatabase,
+    required final ProductType productType,
   }) async =>
-      _fetchAndRefreshList(localDatabase, barcodes);
-
-  /// Fetches the product from the server and refreshes the local database.
-  /// In the case of an error, it will be send throw an [Exception]
-  /// Silent version.
-  Future<Product?> silentFetchAndRefreshWithException({
-    required final String barcode,
-    required final LocalDatabase localDatabase,
-  }) async {
-    final _MetaProductRefresher meta =
-        await _fetchAndRefresh(localDatabase, barcode);
-
-    if (meta.error != null) {
-      throw Exception(meta.error);
-    }
-
-    return meta.product;
-  }
+      _fetchAndRefreshList(localDatabase, barcodes, productType);
 
   /// Fetches the product from the server and refreshes the local database.
   ///
@@ -134,55 +118,100 @@ class ProductRefresher {
   /// Returns true if successful.
   Future<bool> fetchAndRefresh({
     required final String barcode,
-    required final State<StatefulWidget> widget,
+    required final BuildContext context,
   }) async {
-    final LocalDatabase localDatabase = widget.context.read<LocalDatabase>();
-    final AppLocalizations appLocalizations =
-        AppLocalizations.of(widget.context);
-    final _MetaProductRefresher? fetchAndRefreshed =
-        await LoadingDialog.run<_MetaProductRefresher>(
-      future: _fetchAndRefresh(localDatabase, barcode),
-      context: widget.context,
+    final LocalDatabase localDatabase = context.read<LocalDatabase>();
+    final AppLocalizations appLocalizations = AppLocalizations.of(context);
+    final FetchedProduct? fetchAndRefreshed =
+        await LoadingDialog.run<FetchedProduct>(
+      future: silentFetchAndRefresh(
+        localDatabase: localDatabase,
+        barcode: barcode,
+      ),
+      context: context,
       title: appLocalizations.refreshing_product,
     );
     if (fetchAndRefreshed == null) {
+      // the user probably cancelled
       return false;
     }
     if (fetchAndRefreshed.product == null) {
-      if (widget.mounted) {
-        await LoadingDialog.error(context: widget.context);
+      if (context.mounted) {
+        await LoadingDialog.error(
+          context: context,
+          title: fetchAndRefreshed.getErrorTitle(appLocalizations),
+        );
       }
       return false;
     }
-    if (widget.mounted) {
-      ScaffoldMessenger.of(widget.context).showSnackBar(
-        SnackBar(
-          content: Text(appLocalizations.product_refreshed),
-          duration: SnackBarDuration.short,
-        ),
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SmoothFloatingSnackbar.positive(
+            context: context, text: appLocalizations.product_refreshed),
       );
     }
     return true;
   }
 
-  Future<_MetaProductRefresher> _fetchAndRefresh(
-    final LocalDatabase localDatabase,
-    final String barcode,
-  ) async {
+  /// Returns the product type stored locally for that product.
+  static Future<ProductType?> getCurrentProductType({
+    required final LocalDatabase localDatabase,
+    required final String barcode,
+  }) async {
+    final Product? localProduct = await DaoProduct(localDatabase).get(barcode);
+    return localProduct?.productType;
+  }
+
+  /// Fetches the product from the server and refreshes the local database.
+  ///
+  /// Silent version.
+  Future<FetchedProduct> silentFetchAndRefresh({
+    required final LocalDatabase localDatabase,
+    required final String barcode,
+  }) async {
+    // Now we let "food" redirect the queries if needed, as we use
+    // ProductTypeFilter.all
+    const ProductType productType = ProductType.food;
+    final UriProductHelper uriProductHelper = ProductQuery.getUriProductHelper(
+      productType: productType,
+    );
     try {
+      final OpenFoodFactsLanguage language = ProductQuery.getLanguage();
       final ProductResultV3 result = await OpenFoodAPIClient.getProductV3(
-        getBarcodeQueryConfiguration(barcode),
+        getBarcodeQueryConfiguration(
+          barcode,
+          language,
+        ),
+        uriHelper: uriProductHelper,
+        user: ProductQuery.getReadUser(),
       );
       if (result.product != null) {
-        await DaoProduct(localDatabase).put(result.product!);
+        await DaoProduct(localDatabase).put(
+          result.product!,
+          language,
+          productType: productType,
+        );
         localDatabase.upToDate.setLatestDownloadedProduct(result.product!);
-        localDatabase.notifyListeners();
-        return _MetaProductRefresher.product(result.product);
+        return FetchedProduct.found(result.product!);
       }
-      return const _MetaProductRefresher.error(null);
+      return const FetchedProduct.internetNotFound();
     } catch (e) {
       Logs.e('Refresh from server error', ex: e);
-      return _MetaProductRefresher.error(e.toString());
+      final List<ConnectivityResult> connectivityResult =
+          await Connectivity().checkConnectivity();
+      if (connectivityResult.contains(ConnectivityResult.none)) {
+        return FetchedProduct.error(
+          exceptionString: e.toString(),
+          isConnected: false,
+        );
+      }
+      final String host = uriProductHelper.host;
+      final PingData result = await Ping(host, count: 1).stream.first;
+      return FetchedProduct.error(
+        exceptionString: e.toString(),
+        isConnected: true,
+        failedPingedHost: result.error == null ? null : host,
+      );
     }
   }
 
@@ -192,32 +221,31 @@ class ProductRefresher {
   Future<int?> _fetchAndRefreshList(
     final LocalDatabase localDatabase,
     final List<String> barcodes,
+    final ProductType productType,
   ) async {
     try {
-      final SearchResult searchResult = await OpenFoodAPIClient.searchProducts(
-        ProductQuery.getUser(),
-        getBarcodeListQueryConfiguration(barcodes),
+      final OpenFoodFactsLanguage language = ProductQuery.getLanguage();
+      final SearchResult searchResult =
+          await SearchProductsManager.searchProducts(
+        ProductQuery.getReadUser(),
+        getBarcodeListQueryConfiguration(barcodes, language),
+        uriHelper: ProductQuery.getUriProductHelper(productType: productType),
+        type: SearchProductsType.live,
       );
       if (searchResult.products == null) {
         return null;
       }
-      await DaoProduct(localDatabase).putAll(searchResult.products!);
+      await DaoProduct(localDatabase).putAll(
+        searchResult.products!,
+        language,
+        productType: productType,
+      );
       localDatabase.upToDate
           .setLatestDownloadedProducts(searchResult.products!);
-      localDatabase.notifyListeners();
       return searchResult.products!.length;
     } catch (e) {
       Logs.e('Refresh from server error', ex: e);
       return null;
     }
   }
-}
-
-class _MetaProductRefresher {
-  const _MetaProductRefresher.error(this.error) : product = null;
-
-  const _MetaProductRefresher.product(this.product) : error = null;
-
-  final String? error;
-  final Product? product;
 }

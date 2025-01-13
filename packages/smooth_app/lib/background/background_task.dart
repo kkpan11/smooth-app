@@ -4,13 +4,27 @@ import 'package:flutter/material.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:openfoodfacts/openfoodfacts.dart';
 import 'package:smooth_app/background/background_task_manager.dart';
+import 'package:smooth_app/background/background_task_queue.dart';
 import 'package:smooth_app/background/background_task_refresh_later.dart';
 import 'package:smooth_app/database/local_database.dart';
 import 'package:smooth_app/generic_lib/duration_constants.dart';
+import 'package:smooth_app/query/product_query.dart';
+import 'package:smooth_app/widgets/smooth_floating_message.dart';
 
 /// Abstract background task.
 abstract class BackgroundTask {
-  const BackgroundTask({
+  BackgroundTask({
+    required this.processName,
+    required this.uniqueId,
+    required this.stamp,
+    final OpenFoodFactsLanguage? language,
+  })   // TODO(monsieurtanuki): don't store the password in a clear format...
+// TODO(monsieurtanuki): store the uriProductHelper as well
+  : user = jsonEncode(ProductQuery.getWriteUser().toJson()),
+        country = ProductQuery.getCountry().offTag,
+        languageCode = (language ?? ProductQuery.getLanguage()).offTag;
+
+  BackgroundTask._({
     required this.processName,
     required this.uniqueId,
     required this.languageCode,
@@ -20,7 +34,7 @@ abstract class BackgroundTask {
   });
 
   BackgroundTask.fromJson(Map<String, dynamic> json)
-      : this(
+      : this._(
           processName: json[_jsonTagProcessName] as String,
           uniqueId: json[_jsonTagUniqueId] as String,
           languageCode: json[_jsonTagLanguageCode] as String,
@@ -96,34 +110,46 @@ abstract class BackgroundTask {
   /// [BackgroundTaskRefreshLater].
   bool mayRunNow() => true;
 
-  /// SnackBar message when we add the task, like "Added to the task queue!"
+  /// Floating message when we add the task, like "Added to the task queue!"
+  /// Also pass an [AlignmentGeometry] to express where it should be displayed
   ///
-  /// Null if no SnackBar message wanted (like, stealth mode).
+  /// Null if no message wanted (like, stealth mode).
   @protected
-  String? getSnackBarMessage(final AppLocalizations appLocalizations);
+  (String, AlignmentGeometry)? getFloatingMessage(
+    final AppLocalizations appLocalizations,
+  );
 
   /// Adds this task to the [BackgroundTaskManager].
   @protected
   Future<void> addToManager(
     final LocalDatabase localDatabase, {
-    final State<StatefulWidget>? widget,
+    required final BackgroundTaskQueue queue,
+    final BuildContext? context,
     final bool showSnackBar = true,
   }) async {
-    await BackgroundTaskManager.getInstance(localDatabase).add(this);
-    if (widget == null || !widget.mounted) {
+    await BackgroundTaskManager.getInstance(
+      localDatabase,
+      queue: queue,
+    ).add(this);
+    if (context == null || !context.mounted) {
       return;
     }
     if (!showSnackBar) {
       return;
     }
-    final String? snackBarMessage =
-        getSnackBarMessage(AppLocalizations.of(widget.context));
-    if (snackBarMessage != null) {
-      ScaffoldMessenger.of(widget.context).showSnackBar(
-        SnackBar(
-          content: Text(snackBarMessage),
-          duration: SnackBarDuration.medium,
-        ),
+
+    if (!context.mounted) {
+      return;
+    }
+    if (getFloatingMessage(AppLocalizations.of(context))
+        case (
+          final String message,
+          final AlignmentGeometry alignment,
+        )) {
+      SmoothFloatingMessage.loading(message: message).show(
+        context,
+        duration: SnackBarDuration.medium,
+        alignment: alignment,
       );
     }
   }
@@ -132,10 +158,20 @@ abstract class BackgroundTask {
   OpenFoodFactsLanguage getLanguage() => LanguageHelper.fromJson(languageCode);
 
   @protected
-  OpenFoodFactsCountry? getCountry() => CountryHelper.fromJson(country);
+  OpenFoodFactsCountry? getCountry() =>
+      OpenFoodFactsCountry.fromOffTag(country);
 
   @protected
-  User getUser() => User.fromJson(jsonDecode(user) as Map<String, dynamic>);
+  User getUser() {
+    final User storedUser =
+        User.fromJson(jsonDecode(user) as Map<String, dynamic>);
+    final User currentUser = ProductQuery.getWriteUser();
+    if (storedUser.userId == currentUser.userId) {
+      // with a latest password.
+      return currentUser;
+    }
+    return storedUser;
+  }
 
   /// Checks that everything is fine and fix things if needed + if possible.
   ///
@@ -150,4 +186,7 @@ abstract class BackgroundTask {
   /// We return true only in rare cases. Typically, when we split an task in
   /// subtasks that call the next one at the end.
   bool get hasImmediateNextTask => false;
+
+  /// Returns true if tasks with the same stamp would overwrite each-other.
+  bool isDeduplicable() => true;
 }

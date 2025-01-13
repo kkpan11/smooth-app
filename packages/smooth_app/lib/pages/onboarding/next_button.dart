@@ -1,14 +1,12 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:smooth_app/data_models/onboarding_loader.dart';
-import 'package:smooth_app/data_models/user_preferences.dart';
+import 'package:smooth_app/data_models/preferences/user_preferences.dart';
 import 'package:smooth_app/database/local_database.dart';
 import 'package:smooth_app/pages/onboarding/onboarding_bottom_bar.dart';
 import 'package:smooth_app/pages/onboarding/onboarding_flow_navigator.dart';
-import 'package:smooth_app/themes/constant_icons.dart';
+import 'package:smooth_app/resources/app_icons.dart' as icons;
 
 /// Next button showed at the bottom of the onboarding flow.
 class NextButton extends StatelessWidget {
@@ -45,20 +43,21 @@ class NextButton extends StatelessWidget {
               ),
               backgroundColor: Colors.white,
               foregroundColor: Colors.black,
-              icon: ConstantIcons.instance.getBackIcon(),
-              iconPadding: Platform.isIOS || Platform.isMacOS
-                  ? const EdgeInsetsDirectional.only(end: 2.0)
-                  : EdgeInsets.zero,
+              icon: Directionality.of(context) == TextDirection.ltr
+                  ? const icons.Arrow.left()
+                  : const icons.Arrow.right(),
+              iconPadding: EdgeInsets.zero,
             ),
       rightButton: OnboardingBottomButton(
         onPressed: () async {
           await OnboardingLoader(localDatabase)
               .runAtNextTime(currentPage, context);
-          //ignore: use_build_context_synchronously
-          await navigator.navigateToPage(
-            context,
-            currentPage.getNextPage(),
-          );
+          if (context.mounted) {
+            await navigator.navigateToPage(
+              context,
+              currentPage.getNextPage(),
+            );
+          }
         },
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,

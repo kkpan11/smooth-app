@@ -38,6 +38,8 @@ class NutritionContainer {
   /// All the nutrients (country-related) that do match [Nutrient]s.
   final List<OrderedNutrient> _nutrients = <OrderedNutrient>[];
 
+  List<OrderedNutrient> get allNutrients => _nutrients;
+
   /// Nutrient values.
   final Map<Nutrient, double?> _values = <Nutrient, double?>{};
 
@@ -72,7 +74,7 @@ class NutritionContainer {
   bool _isNotRelevant(final OrderedNutrient orderedNutrient) {
     final Nutrient nutrient = getNutrient(orderedNutrient)!;
     return getValue(nutrient) == null &&
-        (!orderedNutrient.important) &&
+        (!orderedNutrient.displayInEditForm) &&
         (!_added.contains(nutrient));
   }
 

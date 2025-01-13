@@ -9,24 +9,32 @@ class SmoothBackButton extends StatelessWidget {
   const SmoothBackButton({
     this.onPressed,
     this.iconColor,
-    Key? key,
-  }) : super(key: key);
+    super.key,
+  });
 
   final VoidCallback? onPressed;
   final Color? iconColor;
 
   @override
-  Widget build(BuildContext context) => Material(
-        type: MaterialType.transparency,
+  Widget build(BuildContext context) {
+    final MaterialLocalizations localizations =
+        MaterialLocalizations.of(context);
+
+    return Material(
+      type: MaterialType.transparency,
+      child: Semantics(
+        value: localizations.backButtonTooltip,
+        button: true,
+        excludeSemantics: true,
         child: InkWell(
           onTap: onPressed ?? () => Navigator.maybePop(context),
           customBorder: const CircleBorder(),
           child: Tooltip(
-            message: MaterialLocalizations.of(context).backButtonTooltip,
+            message: localizations.backButtonTooltip,
             child: Padding(
               padding: _iconPadding,
               child: Icon(
-                ConstantIcons.instance.getBackIcon(),
+                ConstantIcons.backIcon,
                 color: iconColor ??
                     (Theme.of(context).colorScheme.brightness ==
                             Brightness.light
@@ -36,7 +44,9 @@ class SmoothBackButton extends StatelessWidget {
             ),
           ),
         ),
-      );
+      ),
+    );
+  }
 
   /// The iOS/macOS icon requires a little padding to be well-centered
   EdgeInsetsGeometry get _iconPadding {

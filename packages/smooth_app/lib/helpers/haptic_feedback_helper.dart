@@ -1,5 +1,5 @@
 import 'package:flutter/services.dart';
-import 'package:smooth_app/data_models/user_preferences.dart';
+import 'package:smooth_app/data_models/preferences/user_preferences.dart';
 
 /// Haptic feedback/vibrations in the app
 /// Managed by a preference in the user's preferences
@@ -43,9 +43,20 @@ class SmoothHapticFeedback {
     }
 
     await HapticFeedback.heavyImpact();
-    return Future<void>.delayed(const Duration(milliseconds: 50), () {
-      HapticFeedback.heavyImpact();
-    });
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    await HapticFeedback.heavyImpact();
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    return HapticFeedback.heavyImpact();
+  }
+
+  static Future<void> tadam() async {
+    if (!(await _areHapticFeedbackEnabled())) {
+      return;
+    }
+
+    await HapticFeedback.heavyImpact();
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    return HapticFeedback.heavyImpact();
   }
 
   static Future<bool> _areHapticFeedbackEnabled() async {

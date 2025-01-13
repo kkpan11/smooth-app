@@ -6,7 +6,7 @@ import 'package:matomo_tracker/matomo_tracker.dart';
 import 'package:provider/provider.dart';
 import 'package:scanner_shared/scanner_shared.dart';
 import 'package:smooth_app/data_models/continuous_scan_model.dart';
-import 'package:smooth_app/data_models/user_preferences.dart';
+import 'package:smooth_app/data_models/preferences/user_preferences.dart';
 import 'package:smooth_app/generic_lib/dialogs/smooth_alert_dialog.dart';
 import 'package:smooth_app/helpers/analytics_helper.dart';
 import 'package:smooth_app/helpers/camera_helper.dart';
@@ -19,10 +19,21 @@ class CameraScannerPage extends StatefulWidget {
   const CameraScannerPage();
 
   @override
-  CameraScannerPageState createState() => CameraScannerPageState();
+  State<CameraScannerPage> createState() => _CameraScannerPageState();
+
+  static Future<void> onCameraFlashError(BuildContext context) async {
+    final AppLocalizations appLocalizations = AppLocalizations.of(context);
+    return showDialog<void>(
+      context: context,
+      builder: (_) => SmoothAlertDialog(
+        title: appLocalizations.camera_flash_error_dialog_title,
+        body: Text(appLocalizations.camera_flash_error_dialog_message),
+      ),
+    );
+  }
 }
 
-class CameraScannerPageState extends State<CameraScannerPage>
+class _CameraScannerPageState extends State<CameraScannerPage>
     with TraceableClientMixin {
   final GlobalKey<State<StatefulWidget>> _headerKey = GlobalKey();
 
@@ -39,21 +50,37 @@ class CameraScannerPageState extends State<CameraScannerPage>
       _userPreferences = context.watch<UserPreferences>();
     }
 
+    _detectHeaderHeight();
+  }
+
+  /// In some cases, the size may be null
+  /// (Mainly when the app is launched for the first time AND in release mode)
+  void _detectHeaderHeight([int retries = 0]) {
+    // Let's try during 5 frames (should be enough, as 2 or 3 seems to be an average)
+    if (retries > 5) {
+      return;
+    }
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      setState(() {
+      try {
         _headerHeight =
             (_headerKey.currentContext?.findRenderObject() as RenderBox?)
                 ?.size
                 .height;
-      });
+      } catch (_) {
+        _headerHeight = null;
+      }
+
+      if (_headerHeight == null) {
+        _detectHeaderHeight(retries + 1);
+      } else {
+        setState(() {});
+      }
     });
   }
 
   @override
-  String get traceTitle => '${GlobalVars.barcodeScanner.getType()}_page';
-
-  @override
-  String get traceName => 'Opened ${GlobalVars.barcodeScanner.getType()}_page';
+  String get actionName => 'Opened ${GlobalVars.barcodeScanner.getType()}_page';
 
   @override
   Widget build(BuildContext context) {
@@ -65,23 +92,41 @@ class CameraScannerPageState extends State<CameraScannerPage>
       );
     }
 
+    final double statusBarHeight = MediaQuery.viewPaddingOf(context).top;
+
     return ScreenVisibilityDetector(
       child: Stack(
         children: <Widget>[
-          GlobalVars.barcodeScanner.getScanner(
-            onScan: _onNewBarcodeDetected,
-            hapticFeedback: () => SmoothHapticFeedback.click(),
-            onCameraFlashError: _onCameraFlashError,
-            trackCustomEvent: AnalyticsHelper.trackCustomEvent,
-            hasMoreThanOneCamera: CameraHelper.hasMoreThanOneCamera,
-            toggleCameraModeTooltip: appLocalizations.camera_toggle_camera,
-            toggleFlashModeTooltip: appLocalizations.camera_toggle_flash,
-            contentPadding: _model.compareFeatureEnabled
-                ? EdgeInsets.only(top: _headerHeight ?? 0.0)
-                : null,
+          Semantics(
+            label: appLocalizations.camera_window_accessibility_label,
+            explicitChildNodes: true,
+            child: GlobalVars.barcodeScanner.getScanner(
+              onScan: _onNewBarcodeDetected,
+              hapticFeedback: () => SmoothHapticFeedback.click(),
+              onCameraFlashError: CameraScannerPage.onCameraFlashError,
+              trackCustomEvent: AnalyticsHelper.trackCustomEvent,
+              hasMoreThanOneCamera: CameraHelper.hasMoreThanOneCamera,
+              toggleCameraModeTooltip: appLocalizations.camera_toggle_camera,
+              toggleFlashModeTooltip: appLocalizations.camera_toggle_flash,
+              contentPadding: _model.compareFeatureEnabled
+                  ? EdgeInsets.only(top: _headerHeight ?? 0.0)
+                  : null,
+            ),
           ),
-          Align(
-            alignment: Alignment.topCenter,
+          Positioned(
+            top: 0.0,
+            left: 0.0,
+            right: 0.0,
+            child: Container(
+              height: statusBarHeight,
+              width: double.infinity,
+              color: Colors.black12,
+            ),
+          ),
+          Positioned(
+            top: statusBarHeight,
+            left: 0.0,
+            right: 0.0,
             child: ScanHeader(
               key: _headerKey,
             ),
@@ -96,19 +141,7 @@ class CameraScannerPageState extends State<CameraScannerPage>
       return false;
     }
 
-    _userPreferences.setFirstScanAchieved();
+    _userPreferences.incrementScanCount();
     return true;
-  }
-
-  void _onCameraFlashError(BuildContext context) {
-    final AppLocalizations appLocalizations = AppLocalizations.of(context);
-
-    showDialog<void>(
-      context: context,
-      builder: (_) => SmoothAlertDialog(
-        title: appLocalizations.camera_flash_error_dialog_title,
-        body: Text(appLocalizations.camera_flash_error_dialog_message),
-      ),
-    );
   }
 }

@@ -1,7 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:openfoodfacts/openfoodfacts.dart';
 import 'package:smooth_app/generic_lib/design_constants.dart';
-import 'package:smooth_app/generic_lib/smooth_html_widget.dart';
+import 'package:smooth_app/generic_lib/html/smooth_html_widget.dart';
 import 'package:smooth_app/pages/product/add_nutrition_button.dart';
 import 'package:smooth_app/pages/product/add_ocr_button.dart';
 import 'package:smooth_app/pages/product/add_packaging_button.dart';
@@ -30,7 +31,7 @@ class KnowledgePanelActionCard extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.start,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        SmoothHtmlWidget(element.html),
+        if (element.html != null) SmoothHtmlWidget(element.html!),
         const SizedBox(height: SMALL_SPACE),
         ...actionWidgets,
       ],
@@ -64,7 +65,9 @@ class KnowledgePanelActionCard extends StatelessWidget {
       );
     }
     if (kpAction == KnowledgePanelAction.addNutritionFacts) {
-      return AddNutritionButton(product);
+      if (AddNutritionButton.acceptsNutritionFacts(product)) {
+        return AddNutritionButton(product);
+      }
     }
     Logs.e('unhandled knowledge panel action: $action');
     return null;
@@ -107,5 +110,12 @@ class KnowledgePanelActionCard extends StatelessWidget {
       default:
         return false;
     }
+  }
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(StringProperty('html', element.html));
+    properties.add(IterableProperty<String>('actions', element.actions));
   }
 }

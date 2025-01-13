@@ -6,13 +6,14 @@ import 'package:smooth_app/database/local_database.dart';
 import 'package:smooth_app/generic_lib/duration_constants.dart';
 import 'package:smooth_app/helpers/app_helper.dart';
 import 'package:smooth_app/pages/product/common/product_refresher.dart';
+import 'package:smooth_app/query/product_query.dart';
 
 /// Helper around a product we download, store and reuse at onboarding.
 class OnboardingDataProduct extends AbstractOnboardingData<Product> {
   OnboardingDataProduct(
-    final LocalDatabase localDatabase,
+    super.localDatabase,
     this.assetPath,
-  ) : super(localDatabase);
+  );
 
   /// Was computed from [downloadDataString] in en_US
   ///
@@ -37,6 +38,10 @@ class OnboardingDataProduct extends AbstractOnboardingData<Product> {
       OpenFoodAPIClient.getProductString(
         ProductRefresher().getBarcodeQueryConfiguration(
           AbstractOnboardingData.barcode,
+          ProductQuery.getLanguage(),
+        ),
+        uriHelper: ProductQuery.getUriProductHelper(
+          productType: ProductType.food,
         ),
       ).timeout(SnackBarDuration.long);
 

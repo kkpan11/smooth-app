@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:openfoodfacts/openfoodfacts.dart';
+import 'package:smooth_app/data_models/login_result.dart';
 import 'package:smooth_app/database/dao_secured_string.dart';
 import 'package:smooth_app/query/product_query.dart';
 import 'package:smooth_app/services/smooth_services.dart';
@@ -8,32 +11,17 @@ import 'package:smooth_app/services/smooth_services.dart';
 class UserManagementProvider with ChangeNotifier {
   static const String _USER_ID = 'user_id';
   static const String _PASSWORD = 'pasword';
+  static const String _COOKIE = 'user_cookie';
 
-  // TODO(m123): Show why its failing
-  /// Checks credentials and conditionally saves them
-  Future<bool> login(User user) async {
-    final LoginStatus? loginStatus;
-    try {
-      loginStatus = await OpenFoodAPIClient.login2(user);
-    } catch (e) {
-      throw Exception(e);
+  /// Checks credentials and conditionally saves them.
+  Future<LoginResult> login(final User user) async {
+    final LoginResult loginResult = await LoginResult.getLoginResult(user);
+    if (loginResult.type != LoginResultType.successful) {
+      return loginResult;
     }
-
-    if (loginStatus == null) {
-      return false;
-    }
-
-    if (loginStatus.successful) {
-      await putUser(
-        User(
-          userId: loginStatus.userId!,
-          password: user.password,
-        ),
-      );
-      notifyListeners();
-    }
-
-    return loginStatus.successful && await credentialsInStorage();
+    await putUser(loginResult.user!);
+    await credentialsInStorage();
+    return loginResult;
   }
 
   /// Deletes saved credentials from storage
@@ -41,6 +29,7 @@ class UserManagementProvider with ChangeNotifier {
     OpenFoodAPIConfiguration.globalUser = null;
     DaoSecuredString.remove(key: _USER_ID);
     DaoSecuredString.remove(key: _PASSWORD);
+    DaoSecuredString.remove(key: _COOKIE);
     notifyListeners();
     final bool contains = await credentialsInStorage();
     return !contains;
@@ -53,15 +42,18 @@ class UserManagementProvider with ChangeNotifier {
       {String? userId, String? password}) async {
     String? effectiveUserId;
     String? effectivePassword;
+    String? effectiveCookie;
 
     try {
       effectiveUserId = userId ?? await DaoSecuredString.get(_USER_ID);
       effectivePassword = password ?? await DaoSecuredString.get(_PASSWORD);
+      effectiveCookie = await DaoSecuredString.get(_COOKIE);
     } on PlatformException {
       /// Decrypting the values can go wrong if, for example, the app was
       /// manually overwritten from an external apk.
       DaoSecuredString.remove(key: _USER_ID);
       DaoSecuredString.remove(key: _PASSWORD);
+      DaoSecuredString.remove(key: _COOKIE);
       Logs.e('Credentials query failed, you have been logged out');
     }
 
@@ -69,8 +61,11 @@ class UserManagementProvider with ChangeNotifier {
       return;
     }
 
-    final User user =
-        User(userId: effectiveUserId, password: effectivePassword);
+    final User user = User(
+      userId: effectiveUserId,
+      password: effectivePassword,
+      cookie: effectiveCookie,
+    );
     OpenFoodAPIConfiguration.globalUser = user;
   }
 
@@ -93,37 +88,40 @@ class UserManagementProvider with ChangeNotifier {
       key: _PASSWORD,
       value: user.password,
     );
+    if (user.cookie != null) {
+      await DaoSecuredString.put(
+        key: _COOKIE,
+        value: user.cookie!,
+      );
+    } else {
+      DaoSecuredString.remove(key: _COOKIE);
+    }
     notifyListeners();
   }
 
   /// Check if the user is still logged in and the credentials are still valid
   /// If not, the user is logged out
   Future<void> checkUserLoginValidity() async {
-    try {
-      if (ProductQuery.isLoggedIn()) {
-        final User user = ProductQuery.getUser();
-        final LoginStatus? loginStatus = await OpenFoodAPIClient.login2(
-          User(
-            userId: user.userId,
-            password: user.password,
-          ),
-        );
-        if (loginStatus == null) {
-          // No internet or sever down
-          return;
-        }
-        if (loginStatus.successful) {
-          // Credentials are still valid so we just return
-          return;
-        } else {
-          // Credentials are not valid anymore so we log out
-          // TODO(m123): Notify the user
-          await logout();
-        }
-      }
-    } catch (e) {
-      // We don't want to crash the app if the login check fails
-      // So we do nothing here
+    if (!ProductQuery.isLoggedIn()) {
+      return;
+    }
+    final User user = ProductQuery.getWriteUser();
+    final LoginResult loginResult = await LoginResult.getLoginResult(
+      User(
+        userId: user.userId,
+        password: user.password,
+      ),
+    );
+
+    if (loginResult.type == LoginResultType.unsuccessful) {
+      // TODO(m123): Notify the user
+      await logout();
+      return;
+    }
+
+    /// Save the cookie if necessary
+    if (user.cookie == null && loginResult.user?.cookie != null) {
+      putUser(loginResult.user!);
     }
   }
 }

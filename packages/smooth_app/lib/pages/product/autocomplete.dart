@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:smooth_app/generic_lib/design_constants.dart';
+import 'package:smooth_app/widgets/smooth_text.dart';
 
 /// The default Material-style Autocomplete options.
 ///
@@ -9,15 +10,15 @@ import 'package:smooth_app/generic_lib/design_constants.dart';
 /// Inspiration was found in https://stackoverflow.com/questions/66935362
 class AutocompleteOptions<T extends Object> extends StatelessWidget {
   const AutocompleteOptions({
-    Key? key,
+    super.key,
     required this.displayStringForOption,
     required this.onSelected,
     required this.options,
     required this.maxOptionsHeight,
     required this.maxOptionsWidth,
+    this.search,
   })  : assert(maxOptionsHeight >= 0),
-        assert(maxOptionsWidth >= 0),
-        super(key: key);
+        assert(maxOptionsWidth >= 0);
 
   final AutocompleteOptionToString<T> displayStringForOption;
   final AutocompleteOnSelected<T> onSelected;
@@ -25,6 +26,7 @@ class AutocompleteOptions<T extends Object> extends StatelessWidget {
   final Iterable<T> options;
   final double maxOptionsWidth;
   final double maxOptionsHeight;
+  final String? search;
 
   @override
   Widget build(BuildContext context) {
@@ -51,6 +53,7 @@ class AutocompleteOptions<T extends Object> extends StatelessWidget {
                 return _AutocompleteOptionsItem<T>(
                   key: Key(index.toString()),
                   option: option,
+                  search: search,
                   highlight: highlightedOption == index,
                   onSelected: onSelected,
                   displayStringForOption: displayStringForOption,
@@ -73,10 +76,12 @@ class _AutocompleteOptionsItem<T extends Object> extends StatelessWidget {
     required this.highlight,
     required this.displayStringForOption,
     required this.onSelected,
-    Key? key,
-  }) : super(key: key);
+    this.search,
+    super.key,
+  });
 
   final T option;
+  final String? search;
   final bool highlight;
   final AutocompleteOptionToString<T> displayStringForOption;
   final AutocompleteOnSelected<T> onSelected;
@@ -89,15 +94,17 @@ class _AutocompleteOptionsItem<T extends Object> extends StatelessWidget {
       });
     }
 
-    return InkWell(
-      onTap: () {
-        onSelected(option);
-      },
-      child: Container(
-        color: highlight ? Theme.of(context).focusColor : null,
-        padding: const EdgeInsets.all(LARGE_SPACE),
-        child: Text(
-          displayStringForOption(option),
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        onTap: () => onSelected(option),
+        child: Ink(
+          color: highlight ? Theme.of(context).focusColor : null,
+          padding: const EdgeInsets.all(LARGE_SPACE),
+          child: TextHighlighter(
+            text: displayStringForOption(option),
+            filter: search ?? '',
+          ),
         ),
       ),
     );

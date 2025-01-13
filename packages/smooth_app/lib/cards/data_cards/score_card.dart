@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:openfoodfacts/openfoodfacts.dart';
+import 'package:smooth_app/cards/category_cards/svg_cache.dart';
 import 'package:smooth_app/generic_lib/design_constants.dart';
 import 'package:smooth_app/generic_lib/svg_icon_chip.dart';
 import 'package:smooth_app/helpers/score_card_helper.dart';
@@ -8,46 +9,38 @@ import 'package:smooth_app/themes/constant_icons.dart';
 import 'package:smooth_app/themes/smooth_theme.dart';
 
 enum CardEvaluation {
-  UNKNOWN,
-  VERY_BAD,
-  BAD,
-  NEUTRAL,
-  GOOD,
-  VERY_GOOD;
+  UNKNOWN(
+    backgroundColor: GREY_COLOR,
+    textColor: PRIMARY_GREY_COLOR,
+  ),
+  VERY_BAD(
+    backgroundColor: RED_BACKGROUND_COLOR,
+    textColor: RED_COLOR,
+  ),
+  BAD(
+    backgroundColor: ORANGE_BACKGROUND_COLOR,
+    textColor: LIGHT_ORANGE_COLOR,
+  ),
+  NEUTRAL(
+    backgroundColor: YELLOW_BACKGROUND_COLOR,
+    textColor: DARK_YELLOW_COLOR,
+  ),
+  GOOD(
+    backgroundColor: LIGHT_GREEN_BACKGROUND_COLOR,
+    textColor: LIGHT_GREEN_COLOR,
+  ),
+  VERY_GOOD(
+    backgroundColor: DARK_GREEN_BACKGROUND_COLOR,
+    textColor: DARK_GREEN_COLOR,
+  );
 
-  Color getBackgroundColor() {
-    switch (this) {
-      case CardEvaluation.UNKNOWN:
-        return GREY_COLOR;
-      case CardEvaluation.VERY_BAD:
-        return RED_BACKGROUND_COLOR;
-      case CardEvaluation.BAD:
-        return ORANGE_BACKGROUND_COLOR;
-      case CardEvaluation.NEUTRAL:
-        return YELLOW_BACKGROUND_COLOR;
-      case CardEvaluation.GOOD:
-        return LIGHT_GREEN_BACKGROUND_COLOR;
-      case CardEvaluation.VERY_GOOD:
-        return DARK_GREEN_BACKGROUND_COLOR;
-    }
-  }
+  const CardEvaluation({
+    required this.backgroundColor,
+    required this.textColor,
+  });
 
-  Color getTextColor() {
-    switch (this) {
-      case CardEvaluation.UNKNOWN:
-        return PRIMARY_GREY_COLOR;
-      case CardEvaluation.VERY_BAD:
-        return RED_COLOR;
-      case CardEvaluation.BAD:
-        return LIGHT_ORANGE_COLOR;
-      case CardEvaluation.NEUTRAL:
-        return DARK_YELLOW_COLOR;
-      case CardEvaluation.GOOD:
-        return LIGHT_GREEN_COLOR;
-      case CardEvaluation.VERY_GOOD:
-        return DARK_GREEN_COLOR;
-    }
-  }
+  final Color backgroundColor;
+  final Color textColor;
 }
 
 class ScoreCard extends StatelessWidget {
@@ -55,7 +48,8 @@ class ScoreCard extends StatelessWidget {
     required Attribute attribute,
     required this.isClickable,
     this.margin,
-  })  : iconUrl = attribute.iconUrl,
+  })  : type = ScoreCardType.attribute,
+        iconUrl = attribute.iconUrl,
         description = attribute.descriptionShort ?? attribute.description ?? '',
         cardEvaluation = getCardEvaluationFromAttribute(attribute);
 
@@ -63,7 +57,8 @@ class ScoreCard extends StatelessWidget {
     required TitleElement titleElement,
     required this.isClickable,
     this.margin,
-  })  : iconUrl = titleElement.iconUrl,
+  })  : type = ScoreCardType.title,
+        iconUrl = titleElement.iconUrl,
         description = titleElement.title,
         cardEvaluation =
             getCardEvaluationFromKnowledgePanelTitleElement(titleElement);
@@ -73,6 +68,7 @@ class ScoreCard extends StatelessWidget {
   final CardEvaluation cardEvaluation;
   final bool isClickable;
   final EdgeInsetsGeometry? margin;
+  final ScoreCardType type;
 
   @override
   Widget build(BuildContext context) {
@@ -82,46 +78,72 @@ class ScoreCard extends StatelessWidget {
         ? 1
         : SmoothTheme.ADDITIONAL_OPACITY_FOR_DARK;
     final Color backgroundColor =
-        cardEvaluation.getBackgroundColor().withOpacity(opacity);
+        cardEvaluation.backgroundColor.withValues(alpha: opacity);
     final Color textColor = themeData.brightness == Brightness.dark
         ? Colors.white
-        : cardEvaluation.getTextColor().withOpacity(opacity);
+        : cardEvaluation.textColor.withValues(alpha: opacity);
     final SvgIconChip? iconChip =
         iconUrl == null ? null : SvgIconChip(iconUrl!, height: iconHeight);
 
-    return Padding(
-      padding: margin ?? const EdgeInsets.symmetric(vertical: SMALL_SPACE),
-      child: Ink(
-        padding: const EdgeInsets.all(SMALL_SPACE),
-        decoration: BoxDecoration(
-          color: backgroundColor,
-          borderRadius: ANGULAR_BORDER_RADIUS,
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: <Widget>[
-            if (iconChip != null)
+    return Semantics(
+      value: _generateSemanticsValue(context),
+      excludeSemantics: true,
+      header: type == ScoreCardType.title,
+      button: isClickable,
+      child: Padding(
+        padding: margin ?? const EdgeInsets.symmetric(vertical: SMALL_SPACE),
+        child: Ink(
+          padding: const EdgeInsets.all(SMALL_SPACE),
+          decoration: BoxDecoration(
+            color: backgroundColor,
+            borderRadius: ANGULAR_BORDER_RADIUS,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: <Widget>[
+              if (iconChip != null)
+                Expanded(
+                  flex: 1,
+                  child: Padding(
+                    padding: const EdgeInsetsDirectional.only(end: SMALL_SPACE),
+                    child: iconChip,
+                  ),
+                ),
               Expanded(
-                flex: 1,
-                child: Padding(
-                  padding: const EdgeInsetsDirectional.only(end: SMALL_SPACE),
-                  child: iconChip,
+                flex: 3,
+                child: Center(
+                  child: Text(
+                    description,
+                    style: themeData.textTheme.headlineMedium!
+                        .apply(color: textColor),
+                    textAlign: TextAlign.center,
+                  ),
                 ),
               ),
-            Expanded(
-              flex: 3,
-              child: Center(
-                child: Text(
-                  description,
-                  style: themeData.textTheme.headlineMedium!
-                      .apply(color: textColor),
-                ),
-              ),
-            ),
-            if (isClickable) Icon(ConstantIcons.instance.getForwardIcon()),
-          ],
+              if (isClickable) Icon(ConstantIcons.forwardIcon),
+            ],
+          ),
         ),
       ),
     );
   }
+
+  String _generateSemanticsValue(BuildContext context) {
+    if (type == ScoreCardType.title) {
+      return description;
+    }
+
+    final String? iconLabel = SvgCache.getSemanticsLabel(context, iconUrl!);
+
+    if (iconLabel == null) {
+      return description;
+    } else {
+      return '$iconLabel: $description';
+    }
+  }
+}
+
+enum ScoreCardType {
+  title,
+  attribute,
 }
